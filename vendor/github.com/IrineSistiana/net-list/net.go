@@ -1,13 +1,13 @@
-//     Copyright (C) 2018 - 2019, IrineSistiana
+//     Copyright (C) 2018 - 2020, IrineSistiana
 //
-//     This file is part of mosdns.
+//     This file is part of IrineSistiana/net-list.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     IrineSistiana/net-list is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     IrineSistiana/net-list is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package ipv6
+package netlist
 
 import (
 	"encoding/binary"
@@ -29,17 +29,17 @@ const (
 	//32 or 64
 	intSize = 32 << (^uint(0) >> 63)
 
-	//2 or 4
-	ipSize = 128 / intSize
+	//IPSize = 2 or 4
+	IPSize = 128 / intSize
 
 	maxUint = ^uint(0)
 )
 
 //IPv6 represents a ipv6 addr
-type IPv6 [ipSize]uint
+type IPv6 [IPSize]uint
 
 //mask is ipv6 IP network mask
-type mask [ipSize]uint
+type mask [IPSize]uint
 
 //Net represents a ip network
 type Net struct {
@@ -64,10 +64,8 @@ func NewNet(ipv6 IPv6, mask uint64) Net {
 
 //Contains reports whether the ipnet includes ip.
 func (net Net) Contains(ip IPv6) bool {
-	start := net.ip
-	mask := net.mask
-	for i := 0; i < ipSize; i++ {
-		if ip[i]&mask[i] == start[i]&mask[i] {
+	for i := 0; i < IPSize; i++ {
+		if ip[i]&net.mask[i] == net.ip[i]&net.mask[i] {
 			continue
 		}
 		return false
@@ -77,7 +75,7 @@ func (net Net) Contains(ip IPv6) bool {
 
 var (
 	//ErrNotIPv6 raised by Conv()
-	ErrNotIPv6 = errors.New("given ip is not a valid ipv6 address")
+	ErrNotIPv6 = errors.New("ip is not a valid ipv6 address")
 )
 
 //Conv converts ip to type IPv6.
@@ -89,12 +87,12 @@ func Conv(ip net.IP) (IPv6, error) {
 	intIP := IPv6{}
 	switch intSize {
 	case 32:
-		for i := 0; i < ipSize; i++ { //0 to 3
+		for i := 0; i < IPSize; i++ { //0 to 3
 			s := i * 4
 			intIP[i] = uint(binary.BigEndian.Uint32(ip[s : s+4]))
 		}
 	case 64:
-		for i := 0; i < ipSize; i++ { //0 to 1
+		for i := 0; i < IPSize; i++ { //0 to 1
 			s := i * 8
 			intIP[i] = uint(binary.BigEndian.Uint64(ip[s : s+8]))
 		}
@@ -141,7 +139,7 @@ func ParseCIDR(s string) (Net, error) {
 }
 
 func cidrMask(n uint64) (m mask) {
-	for i := uint(0); i < ipSize; i++ {
+	for i := uint(0); i < IPSize; i++ {
 		if n != 0 {
 			m[i] = ^(maxUint >> n)
 		} else {

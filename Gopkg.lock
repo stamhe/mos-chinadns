@@ -10,12 +10,12 @@
   revision = "6ac3c31daa334587e23e98ac9c29690e9d1fa2b8"
 
 [[projects]]
-  digest = "1:f4b7d051caa5968d8e700a33fc254708c75cf86327b42e9db4cb8961a625cc46"
-  name = "github.com/IrineSistiana/mosdns"
-  packages = ["core/ipv6"]
+  branch = "master"
+  digest = "1:5fdd8691fe20b8e953df2b48044a8d650808345ce8fb694a6b9d33558d654d20"
+  name = "github.com/IrineSistiana/net-list"
+  packages = ["."]
   pruneopts = "UT"
-  revision = "0f192b01260faf3807a39619c1dca95a78c697d0"
-  version = "v1.13.1"
+  revision = "22cc5a27e015cb393ea000861722602d7a787129"
 
 [[projects]]
   digest = "1:04457f9f6f3ffc5fea48e71d62f2ca256637dee0a04d710288e27e05c8b41976"
@@ -34,8 +34,8 @@
     "zlib",
   ]
   pruneopts = "UT"
-  revision = "d4b3bb13d45b000ac3a915d4f32069a9284540bb"
-  version = "v1.10.2"
+  revision = "788b7f06fee85b7e1d2aa4a3a86f8dbbbcc771ae"
+  version = "v1.10.3"
 
 [[projects]]
   digest = "1:31e761d97c76151dde79e9d28964a812c46efc5baee4085b86f68f0c654450de"
@@ -46,12 +46,12 @@
   version = "v1.0.2"
 
 [[projects]]
-  digest = "1:b0964eafd082596f6ae1910b2a0ed29d2f2c6a5094b7ac6598605cba25d2b8ac"
+  digest = "1:4d3b701f39cdc4070ebea445194e9dccaa5de26d6d785ff457defb3bddb410ed"
   name = "github.com/miekg/dns"
   packages = ["."]
   pruneopts = "UT"
-  revision = "6c0c4e6581f8e173cc562c8b3363ab984e4ae071"
-  version = "v1.1.27"
+  revision = "40ecd66164f150e0c8b732abfd80751eadf6f931"
+  version = "v1.1.28"
 
 [[projects]]
   digest = "1:c468422f334a6b46a19448ad59aaffdfc0a36b08fdcc1c749a0b29b6453d7e59"
@@ -82,7 +82,7 @@
     "ed25519/internal/edwards25519",
   ]
   pruneopts = "UT"
-  revision = "2aa609cf4a9d7d1126360de73b55b6002f9e052a"
+  revision = "f7b00557c8c46a1ea4b035cae84f52028c2c0564"
 
 [[projects]]
   branch = "master"
@@ -96,22 +96,22 @@
     "ipv6",
   ]
   pruneopts = "UT"
-  revision = "0de0cce0169b09b364e001f108dc0399ea8630b3"
+  revision = "244492dfa37ae2ce87222fd06250a03160745faa"
 
 [[projects]]
   branch = "master"
-  digest = "1:e6f3eca022d18ff28112534a46d8bad7400b1523724061dff2d1bfc737bee376"
+  digest = "1:adfbfe0bbb10df3375281317f1f9ce041773f1394819c825f044a0477af57c44"
   name = "golang.org/x/sys"
   packages = [
     "unix",
     "windows",
   ]
   pruneopts = "UT"
-  revision = "d5e6a3e2c0ae16fc7480523ebcb7fd4dd3215489"
+  revision = "a7d97aace0b03bedead413ec782269d62e032341"
 
 [[projects]]
   branch = "master"
-  digest = "1:f9ba5fb54c319c57b47a6302d88b642025c9f4263551a4c951dc90daf0531a45"
+  digest = "1:ae972188affcffb27a1439cbbbdb72e0e9237c435baee9c25648ea750a0e37c6"
   name = "golang.org/x/tools"
   packages = [
     "go/ast/astutil",
@@ -124,14 +124,14 @@
     "internal/packagesinternal",
   ]
   pruneopts = "UT"
-  revision = "706bc42d1f0d6e520b893595825c475de0fea824"
+  revision = "63da46f3035ef75327f4675020dd8c88a41dcaf7"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
     "github.com/IrineSistiana/mos-doh-client/client",
-    "github.com/IrineSistiana/mosdns/core/ipv6",
+    "github.com/IrineSistiana/net-list",
     "github.com/Sirupsen/logrus",
     "github.com/miekg/dns",
   ]

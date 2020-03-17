@@ -33,7 +33,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/IrineSistiana/mosdns/core/ipv6"
+	netlist "github.com/IrineSistiana/net-list"
 	"github.com/Sirupsen/logrus"
 )
 
@@ -48,8 +48,8 @@ type dispatcher struct {
 	remoteClient    *dns.Client
 	remoteDoHClient *dohClient.DohClient
 
-	localAllowedIPList     *ipv6.NetList
-	localBlockedIPList     *ipv6.NetList
+	localAllowedIPList     *netlist.List
+	localBlockedIPList     *netlist.List
 	localAllowedDomainList *domainlist.List
 	localBlockedDomainList *domainlist.List
 	remoteECS              *dns.EDNS0_SUBNET
@@ -132,7 +132,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.LocalAllowedIPList) != 0 {
-		allowedIPList, err := ipv6.NewNetListFromFile(conf.LocalAllowedIPList)
+		allowedIPList, err := netlist.NewListFromFile(conf.LocalAllowedIPList)
 		if err != nil {
 			return nil, fmt.Errorf("initDispather: failed to load allowed ip file, %w", err)
 		}
@@ -141,7 +141,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.LocalBlockedIPList) != 0 {
-		blockIPList, err := ipv6.NewNetListFromFile(conf.LocalBlockedIPList)
+		blockIPList, err := netlist.NewListFromFile(conf.LocalBlockedIPList)
 		if err != nil {
 			return nil, fmt.Errorf("initDispather: failed to load blocked ip file, %w", err)
 		}
@@ -469,16 +469,16 @@ func (d *dispatcher) dropLoaclRes(res *dns.Msg, requestLogger *logrus.Entry) boo
 }
 
 // list can not be nil
-func anwsersMatchNetList(anwser []dns.RR, list *ipv6.NetList, requestLogger *logrus.Entry) bool {
+func anwsersMatchNetList(anwser []dns.RR, list *netlist.List, requestLogger *logrus.Entry) bool {
 	var matched bool
 	for i := range anwser {
-		var ip ipv6.IPv6
+		var ip netlist.IPv6
 		var err error
 		switch tmp := anwser[i].(type) {
 		case *dns.A:
-			ip, err = ipv6.Conv(tmp.A)
+			ip, err = netlist.Conv(tmp.A)
 		case *dns.AAAA:
-			ip, err = ipv6.Conv(tmp.AAAA)
+			ip, err = netlist.Conv(tmp.AAAA)
 		default:
 			continue
 		}

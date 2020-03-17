@@ -25,7 +25,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 
-	"github.com/IrineSistiana/mosdns/core/ipv6"
+	netlist "github.com/IrineSistiana/net-list"
+
 	"github.com/miekg/dns"
 )
 
@@ -84,13 +85,13 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 		return nil, nil, err
 	}
 
-	allowedIP, err := ipv6.NewNetListFromReader(bytes.NewReader([]byte(allow)))
+	allowedIP, err := netlist.NewListFromReader(bytes.NewReader([]byte(allow)))
 	if err != nil {
 		return nil, nil, err
 	}
 	d.localAllowedIPList = allowedIP
 
-	blockedIP, err := ipv6.NewNetListFromReader(bytes.NewReader([]byte(block)))
+	blockedIP, err := netlist.NewListFromReader(bytes.NewReader([]byte(block)))
 	if err != nil {
 		return nil, nil, err
 	}

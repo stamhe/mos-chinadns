@@ -1,13 +1,13 @@
-//     Copyright (C) 2018 - 2019, IrineSistiana
+//     Copyright (C) 2018 - 2020, IrineSistiana
 //
-//     This file is part of mosdns.
+//     This file is part of IrineSistiana/net-list.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     IrineSistiana/net-list is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     IrineSistiana/net-list is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package ipv6
+package netlist
 
 import (
 	"bufio"
@@ -26,25 +26,37 @@ import (
 	"strings"
 )
 
-//NetList is a list of Nets. All Nets will be in ipv6 format, even it's
+//List is a list of Nets. All Nets will be in ipv6 format, even it's
 //ipv4 addr. Cause we use bin search.
-type NetList struct {
+type List struct {
 	elems  []Net
 	sorted bool
 }
 
 //NewNetList returns a NetList, list can not be nil.
-func NewNetList(list []Net) *NetList {
-	return &NetList{
-		elems: list,
+func NewNetList() *List {
+	return &List{
+		elems: make([]Net, 0),
 	}
 }
 
-//NewNetListFromReader read IP list from a reader, if no valid IP addr was found,
-//it will return a empty NetList, NOT nil.
-func NewNetListFromReader(reader io.Reader) (*NetList, error) {
+//NewListFromFile read IP list from a file, if no valid IP addr was found,
+//it will return a empty NetList, NOT nil. NetList will be a sorted list.
+func NewListFromFile(file string) (*List, error) {
 
-	ipNetList := NewNetList(make([]Net, 0))
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return NewListFromReader(f)
+}
+
+//NewListFromReader read IP list from a reader, if no valid IP addr was found,
+//it will return a empty NetList, NOT nil. NetList will be a sorted list.
+func NewListFromReader(reader io.Reader) (*List, error) {
+
+	ipNetList := NewNetList()
 	s := bufio.NewScanner(reader)
 
 	//count how many lines we have readed.
@@ -72,48 +84,37 @@ func NewNetListFromReader(reader io.Reader) (*NetList, error) {
 }
 
 //Append appends new Nets to the list.
-func (list *NetList) Append(newNet ...Net) {
+//You must call Sort() before call Contains()
+func (list *List) Append(newNet ...Net) {
 	list.elems = append(list.elems, newNet...)
 	list.sorted = false
 }
 
 //Sort sorts the list, this must be called everytime after
 //list was modified.
-func (list *NetList) Sort() {
+func (list *List) Sort() {
 	sort.Sort(list)
 	list.sorted = true
 }
 
 //implement sort Interface
-func (list *NetList) Len() int {
+func (list *List) Len() int {
 	return len(list.elems)
 }
 
-func (list *NetList) Less(i, j int) bool {
+func (list *List) Less(i, j int) bool {
 	return smallOrEqual(list.elems[i].ip, list.elems[j].ip)
 }
 
-func (list *NetList) Swap(i, j int) {
+func (list *List) Swap(i, j int) {
 	tmp := list.elems[i]
 	list.elems[i] = list.elems[j]
 	list.elems[j] = tmp
 }
 
-//NewNetListFromFile read IP list from a file, if no valid IP addr was found,
-//it will return a empty NetList, NOT nil.
-func NewNetListFromFile(file string) (*NetList, error) {
-
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return NewNetListFromReader(f)
-}
-
 //Contains reports whether the list includes given ipv6.
 //list must be sorted, or Contains will panic.
-func (list *NetList) Contains(ipv6 IPv6) bool {
+func (list *List) Contains(ipv6 IPv6) bool {
 	if !list.sorted {
 		panic("list is not sorted")
 	}
@@ -138,7 +139,7 @@ func (list *NetList) Contains(ipv6 IPv6) bool {
 
 //smallOrEqual IP1 <= IP2 ?
 func smallOrEqual(IP1, IP2 IPv6) bool {
-	for k := 0; k < ipSize; k++ {
+	for k := 0; k < IPSize; k++ {
 		switch {
 		case IP1[k] == IP2[k]:
 			continue
