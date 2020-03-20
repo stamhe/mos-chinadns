@@ -125,7 +125,7 @@
 
 ## 更新中国大陆IP与域名列表
 
-如果你想自己更新中国大陆IP与域名列表。[release_chn_ip_domain_updater.py](https://github.com/IrineSistiana/mos-chinadns/blob/master/release_chn_ip_domain_updater.py`)能自动下载数据并生成`chn.list`，`chn_domain.list`到当前目录。
+如果你想自己更新中国大陆IP与域名列表。[release_chn_ip_domain_updater.py](https://github.com/IrineSistiana/mos-chinadns/blob/master/release_chn_ip_domain_updater.py)能自动下载数据并生成`chn.list`，`chn_domain.list`到当前目录。
 
 ## 分流效果
 
