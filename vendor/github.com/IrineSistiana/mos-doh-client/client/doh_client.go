@@ -94,11 +94,10 @@ func (c *DoHClient) Exchange(q *dns.Msg) (*dns.Msg, error) {
 	// request.
 	// https://tools.ietf.org/html/rfc8484 4.1
 
-	id := q.Id
-	q.Id = 0
-	defer func() { q.Id = id }()
+	qCopy := *q // just shadow copy, we only need change q.Id
+	qCopy.Id = 0
 
-	wireMsg, err := q.PackBuffer(buf)
+	wireMsg, err := qCopy.PackBuffer(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +143,9 @@ func (c *DoHClient) Exchange(q *dns.Msg) (*dns.Msg, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Unpack: %w", err)
 	}
+
+	// change r.Id back
+	r.Id = q.Id
 	return r, nil
 }
 

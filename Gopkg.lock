@@ -3,11 +3,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:a7f450bec5e646c62b5cdb457b9ba3b8d3116ca7e81218c5293b7eadccacc42e"
+  digest = "1:3235b28bb9ae07a5ba5d248b96e5601c5f7bd88a8a9f208a628650deeae585ef"
   name = "github.com/IrineSistiana/mos-doh-client"
   packages = ["client"]
   pruneopts = "UT"
-  revision = "d699b144607720f3076df5212b65d6e2d398e7d9"
+  revision = "e25c19bb17d7b5c968330e096810181de97461db"
 
 [[projects]]
   branch = "master"
