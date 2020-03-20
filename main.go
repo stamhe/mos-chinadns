@@ -35,15 +35,22 @@ var (
 	dirFollowExecutable = flag.Bool("dir2exe", false, "change working directory to the executable that started the current process")
 
 	verbose = flag.Bool("v", false, "more log")
+	quite   = flag.Bool("q", false, "no log")
+
+	noUDP = flag.Bool("no-udp", false, "don't listen on udp socket")
+	noTCP = flag.Bool("no-tcp", false, "don't listen on tcp socket")
 )
 
 func main() {
 	flag.Parse()
 
 	logger := logrus.New()
-	if *verbose {
+	switch {
+	case *quite:
+		logger.SetLevel(logrus.ErrorLevel)
+	case *verbose:
 		logger.SetLevel(logrus.DebugLevel)
-	} else {
+	default:
 		logger.SetLevel(logrus.InfoLevel)
 	}
 	entry := logrus.NewEntry(logger)
@@ -80,7 +87,6 @@ func main() {
 	}
 
 	//checking
-
 	if len(*configPath) == 0 {
 		entry.Fatal("need a config file")
 	}
@@ -92,18 +98,31 @@ func main() {
 
 	d, err := initDispather(c, entry)
 	if err != nil {
-		entry.Fatal(err)
+		entry.Fatalf("init dispather: %v", err)
 	}
 
-	go func() {
-		entry.Info("server started")
-		if err := d.ListenAndServe(); err != nil {
-			entry.Fatalf("server exited with err: %v", err)
+	startServer := func(network string) {
+		entry.Infof("%s server started", network)
+		if err := d.ListenAndServe(network); err != nil {
+			entry.Fatalf("%s server exited with err: %v", network, err)
 		} else {
-			entry.Info("server exited")
+			entry.Infof("%s server exited", network)
 			os.Exit(0)
 		}
-	}()
+	}
+
+	if *noTCP && *noUDP {
+		entry.Fatal("no tcp and no udp? what do you want to me to do?")
+	}
+	switch {
+	case *noTCP:
+		go startServer("udp")
+	case *noUDP:
+		go startServer("tcp")
+	default:
+		go startServer("tcp")
+		go startServer("udp")
+	}
 
 	//wait signals
 	osSignals := make(chan os.Signal, 1)

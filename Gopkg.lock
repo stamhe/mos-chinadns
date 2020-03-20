@@ -3,11 +3,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:f7aa215410183f57aef588a0cad59331957211dad0b4375562a272f470b2b8f2"
+  digest = "1:a7f450bec5e646c62b5cdb457b9ba3b8d3116ca7e81218c5293b7eadccacc42e"
   name = "github.com/IrineSistiana/mos-doh-client"
   packages = ["client"]
   pruneopts = "UT"
-  revision = "6ac3c31daa334587e23e98ac9c29690e9d1fa2b8"
+  revision = "d699b144607720f3076df5212b65d6e2d398e7d9"
 
 [[projects]]
   branch = "master"
@@ -46,12 +46,12 @@
   version = "v1.0.2"
 
 [[projects]]
-  digest = "1:4d3b701f39cdc4070ebea445194e9dccaa5de26d6d785ff457defb3bddb410ed"
+  digest = "1:3e2a07391c0756e06504dfa2fb6c52d55261c8d5a9d790ab316a1544bbe87b0d"
   name = "github.com/miekg/dns"
   packages = ["."]
   pruneopts = "UT"
-  revision = "40ecd66164f150e0c8b732abfd80751eadf6f931"
-  version = "v1.1.28"
+  revision = "f515aa579d28efa1af67d9a62cc57f2dfe59da76"
+  version = "v1.1.29"
 
 [[projects]]
   digest = "1:c468422f334a6b46a19448ad59aaffdfc0a36b08fdcc1c749a0b29b6453d7e59"
@@ -82,7 +82,7 @@
     "ed25519/internal/edwards25519",
   ]
   pruneopts = "UT"
-  revision = "f7b00557c8c46a1ea4b035cae84f52028c2c0564"
+  revision = "1b76d66859c6111b3d5c3ea6600ea44dc188bf12"
 
 [[projects]]
   branch = "master"
@@ -96,18 +96,18 @@
     "ipv6",
   ]
   pruneopts = "UT"
-  revision = "244492dfa37ae2ce87222fd06250a03160745faa"
+  revision = "63522dbf7eec79acb34c1eb827fb0527d168c182"
 
 [[projects]]
   branch = "master"
-  digest = "1:adfbfe0bbb10df3375281317f1f9ce041773f1394819c825f044a0477af57c44"
+  digest = "1:70ad9a7394ce9ae89ca0ded5c02ddb0135ccfc636d41a4d3b7c3a5c8cf39fd53"
   name = "golang.org/x/sys"
   packages = [
     "unix",
     "windows",
   ]
   pruneopts = "UT"
-  revision = "a7d97aace0b03bedead413ec782269d62e032341"
+  revision = "5766fd39f98ddd8d769ad4aedcee557dd28de90f"
 
 [[projects]]
   branch = "master"
@@ -124,7 +124,7 @@
     "internal/packagesinternal",
   ]
   pruneopts = "UT"
-  revision = "63da46f3035ef75327f4675020dd8c88a41dcaf7"
+  revision = "521f4a0cd458c441dec3bafd8ba24526a6cb9b09"
 
 [solve-meta]
   analyzer-name = "dep"

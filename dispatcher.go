@@ -46,7 +46,7 @@ type dispatcher struct {
 
 	localClient     *dns.Client
 	remoteClient    *dns.Client
-	remoteDoHClient *dohClient.DohClient
+	remoteDoHClient *dohClient.DoHClient
 
 	localAllowedIPList     *netlist.List
 	localBlockedIPList     *netlist.List
@@ -63,15 +63,16 @@ const (
 )
 
 var (
-	tp = timerPool{}
+	timerPool  = sync.Pool{}
+	bufPool512 = sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 512)
+		},
+	}
 )
 
-type timerPool struct {
-	sync.Pool
-}
-
 func getTimer(t time.Duration) *time.Timer {
-	timer, ok := tp.Get().(*time.Timer)
+	timer, ok := timerPool.Get().(*time.Timer)
 	if !ok {
 		return time.NewTimer(t)
 	}
@@ -92,7 +93,7 @@ func releaseTimer(timer *time.Timer) {
 		default:
 		}
 	}
-	tp.Put(timer)
+	timerPool.Put(timer)
 }
 
 func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
@@ -100,12 +101,12 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	d.entry = entry
 
 	if len(conf.BindAddr) == 0 {
-		return nil, errors.New("initDispather: missing args: bind address")
+		return nil, errors.New("missing args: bind address")
 	}
 	d.bindAddr = conf.BindAddr
 
 	if len(conf.LocalServer) == 0 && len(conf.RemoteServer) == 0 {
-		return nil, errors.New("initDispather: missing args: both local server and remote server are empty")
+		return nil, errors.New("missing args: both local server and remote server are empty")
 	}
 	if len(conf.LocalServer) != 0 {
 		d.localServer = conf.LocalServer
@@ -118,7 +119,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.RemoteServer) != 0 {
 		d.remoteServer = conf.RemoteServer
 		if len(conf.RemoteServerURL) != 0 {
-			d.remoteDoHClient = dohClient.NewClient(conf.RemoteServerURL, conf.RemoteServer, conf.RemoteServerSkipVerify, 2048, dohQueryTimeout)
+			d.remoteDoHClient = dohClient.NewClient(conf.RemoteServerURL, conf.RemoteServer, conf.RemoteServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout, d.entry)
 		} else {
 			d.remoteClient = &dns.Client{
 				Net:            "udp",
@@ -134,7 +135,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalAllowedIPList) != 0 {
 		allowedIPList, err := netlist.NewListFromFile(conf.LocalAllowedIPList)
 		if err != nil {
-			return nil, fmt.Errorf("initDispather: failed to load allowed ip file, %w", err)
+			return nil, fmt.Errorf("failed to load allowed ip file, %w", err)
 		}
 		d.entry.Infof("initDispather: LocalAllowedIPList length %d", allowedIPList.Len())
 		d.localAllowedIPList = allowedIPList
@@ -143,7 +144,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalBlockedIPList) != 0 {
 		blockIPList, err := netlist.NewListFromFile(conf.LocalBlockedIPList)
 		if err != nil {
-			return nil, fmt.Errorf("initDispather: failed to load blocked ip file, %w", err)
+			return nil, fmt.Errorf("failed to load blocked ip file, %w", err)
 		}
 		d.entry.Infof("initDispather: LocalBlockedIPList length %d", blockIPList.Len())
 		d.localBlockedIPList = blockIPList
@@ -152,7 +153,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalForcedDomainList) != 0 {
 		dl, err := domainlist.LoadFormFile(conf.LocalForcedDomainList)
 		if err != nil {
-			return nil, fmt.Errorf("initDispather: failed to load forced domain file, %w", err)
+			return nil, fmt.Errorf("failed to load forced domain file, %w", err)
 		}
 		d.entry.Infof("initDispather: LocalForcedDomainList length %d", dl.Len())
 		d.localAllowedDomainList = dl
@@ -161,7 +162,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalBlockedDomainList) != 0 {
 		dl, err := domainlist.LoadFormFile(conf.LocalBlockedDomainList)
 		if err != nil {
-			return nil, fmt.Errorf("initDispather: failed to load blocked domain file, %w", err)
+			return nil, fmt.Errorf("failed to load blocked domain file, %w", err)
 		}
 		d.entry.Infof("initDispather: LocalBlockedDomainList length %d", dl.Len())
 		d.localBlockedDomainList = dl
@@ -170,16 +171,16 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.RemoteECSSubnet) != 0 {
 		strs := strings.SplitN(conf.RemoteECSSubnet, "/", 2)
 		if len(strs) != 2 {
-			return nil, fmt.Errorf("initDispather: invalid ECS address [%s], not a CIDR notation", conf.RemoteECSSubnet)
+			return nil, fmt.Errorf("invalid ECS address [%s], not a CIDR notation", conf.RemoteECSSubnet)
 		}
 
 		ip := net.ParseIP(strs[0])
 		if ip == nil {
-			return nil, fmt.Errorf("initDispather: invalid ECS address [%s], invalid ip", conf.RemoteECSSubnet)
+			return nil, fmt.Errorf("invalid ECS address [%s], invalid ip", conf.RemoteECSSubnet)
 		}
 		sourceNetmask, err := strconv.Atoi(strs[1])
 		if err != nil || sourceNetmask > 128 || sourceNetmask < 0 {
-			return nil, fmt.Errorf("initDispather: invalid ECS address [%s], invalid net mask", conf.RemoteECSSubnet)
+			return nil, fmt.Errorf("invalid ECS address [%s], invalid net mask", conf.RemoteECSSubnet)
 		}
 
 		ednsSubnet := new(dns.EDNS0_SUBNET)
@@ -196,7 +197,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 				ednsSubnet.SourceNetmask = uint8(sourceNetmask)
 				ip = ip6
 			} else {
-				return nil, fmt.Errorf("initDispather: invalid ECS address [%s], it's not an ipv4 or ipv6 address", conf.RemoteECSSubnet)
+				return nil, fmt.Errorf("invalid ECS address [%s], it's not an ipv4 or ipv6 address", conf.RemoteECSSubnet)
 			}
 		}
 
@@ -210,15 +211,30 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	return d, nil
 }
 
-func (d *dispatcher) ListenAndServe() error {
-	return dns.ListenAndServe(d.bindAddr, "udp", d)
+func (d *dispatcher) ListenAndServe(network string) error {
+	return dns.ListenAndServe(d.bindAddr, network, d)
 }
 
 // ServeDNS impliment the interface
 func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	r := d.serveDNS(q)
 	if r != nil {
-		w.WriteMsg(r)
+		buf := bufPool512.Get().([]byte)
+		defer bufPool512.Put(buf)
+
+		data, err := r.PackBuffer(buf)
+		if err != nil {
+			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
+		}
+		if len(data) > len(buf) {
+			// data is a new allocated buffer, it's bigger than buf
+			// so it's ok to put it back to pool
+			defer bufPool512.Put(data[:cap(data)])
+		}
+		_, err = w.Write(data)
+		if err != nil {
+			d.entry.Warnf("ServeDNS: Write: %v", err)
+		}
 	}
 }
 
@@ -408,7 +424,7 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) {
 	opt := q.IsEdns0()
 	if opt == nil { // we need a new opt
 		o := new(dns.OPT)
-		o.SetUDPSize(2048) // TODO: is this big enough?
+		o.SetUDPSize(4096) // TODO: is this big enough?
 		o.Hdr.Name = "."
 		o.Hdr.Rrtype = dns.TypeOPT
 		o.Option = []dns.EDNS0{ecs}
