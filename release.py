@@ -49,8 +49,10 @@ env_combinations = [[['GOOS', 'darwin'], ['GOARCH', 'amd64']],
 def init_release_resources():
     subprocess.check_call(f'go run ./ -gen config-example.json',
                           shell=True, env=os.environ.copy())
-    update_domain()
-    update_ip()
+
+    if len(sys.argv) > 1  and '-list' in sys.argv[1:]:
+        update_domain()
+        update_ip()
 
 # LisonFan/china_ip_list This project is no more :(
 
