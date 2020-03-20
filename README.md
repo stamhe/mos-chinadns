@@ -1,6 +1,6 @@
 # mos-chinadns
 
-一个简单的DNS解析器，实现基于域名与IP的分流，支持DoH，IPv6，[EDNS Client Subnet](https://tools.ietf.org/html/rfc7871)。
+支持DoH，IPv6，[EDNS Client Subnet](https://tools.ietf.org/html/rfc7871)，根据域名和IP的分流。内置[APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)中国大陆IP表和[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)域名表。
 
 ---
 
@@ -8,26 +8,22 @@
   - [命令帮助](#命令帮助)
   - [配置文件说明](#配置文件说明)
   - [三分钟快速上手 & 预设配置](#三分钟快速上手--预设配置)
+  - [更新中国大陆IP与域名列表](#更新中国大陆ip与域名列表)
   - [分流效果](#分流效果)
-  - [实现细节](#实现细节)
-    - [黑白名单](#黑白名单)
-    - [关于EDNS Client Subnet (ECS)](#关于edns-client-subnet-ecs)
-    - [关于DNS-over-HTTPS (DoH)](#关于dns-over-https-doh)
-    - [关于文件路径](#关于文件路径)
+  - [其他细节](#其他细节)
   - [Open Source Components / Libraries](#open-source-components--libraries)
 
 ## 命令帮助
 
-    -c string
-            [路径]json配置文件路径
-    -gen string
-            [路径]生成一个json配置文件模板至该路径
-    -dir string
-            [路径]变更程序的工作目录
-    -dir2exe
-            变更程序的工作目录至可执行文件的目录
+    -c string   [路径]json配置文件路径
+    -dir string [路径]变更程序的工作目录
+    -dir2exe    变更程序的工作目录至可执行文件的目录
 
-    -v    调试模式，更多的log输出
+    -gen string [路径]生成一个json配置文件模板至该路径
+    -v          调试模式，更多的log输出
+    -q          安静模式，无log
+    -no-tcp     不监听tcp，只监听udp
+    -no-udp     不监听udp，只监听tcp
 
 ## 配置文件说明
 
@@ -35,37 +31,37 @@
         // [IP:端口][必需] 监听地址
         "bind_addr": "127.0.0.1:53", 
 
-        // [IP:端口] 本地服务器地址 建议:一个低延时但会被污染大陆服务器，用于解析大陆域名。
+        // [IP:端口] `local_server`地址 建议:一个低延时但会被污染大陆服务器，用于解析大陆域名。
         "local_server": "223.5.5.5:53",     
 
-        // [bool] 本地服务器是否屏蔽非A或AAAA请求。
+        // [bool] `local_server`是否屏蔽非A或AAAA请求。
         "local_server_block_unusual_type": false,
 
-        // [IP:端口] 远程服务器地址 建议:一个无污染的服务器。用于解析非大陆域名。   
+        // [IP:端口] `remote_server`地址 建议:一个无污染的服务器。用于解析非大陆域名。   
         "remote_server": "8.8.8.8:443", 
 
-        // [URL] 远程DoH服务器的url，如果填入，远程服务器将使用DoH协议
+        // [URL] 远程DoH服务器的url，如果填入，`remote_server`将使用DoH协议
         "remote_server_url": "https://dns.google/dns-query",  
 
         // [bool] 是否跳过验证DoH服务器身份 高危选项，会破坏DoH的安全性
         "remote_server_skip_verify": false, 
 
-        // [int] 单位毫秒 远程服务器延时启动时间
+        // [int] 单位毫秒 `remote_server`延时启动时间
         // 如果在设定时间(单位毫秒)后local_server无响应或失败，则开始请求remote_server。
         // 如果local_server延时较低，将该值设定为120%的local_server的延时可显著降低请求remote_server的次数。
         // 0表示禁用延时，请求将同时发送。
         "remote_server_delay_start": 0, 
 
-        // [路径] 本地服务器IP白名单 建议:中国大陆IP列表，用于区别大陆与非大陆结果。
+        // [路径] `local_server`IP白名单 建议:中国大陆IP列表，用于区别大陆与非大陆结果。
         "local_allowed_ip_list": "/path/to/your/chn/ip/list", 
 
-        // [路径] 本地服务器IP黑名单 建议:希望被屏蔽的IP列表，比如运营商的广告服务器IP。
+        // [路径] `local_server`IP黑名单 建议:希望被屏蔽的IP列表，比如运营商的广告服务器IP。
         "local_blocked_ip_list": "/path/to/your/black/ip/list",
         
-        // [路径] 强制使用本地服务器解析的域名名单 建议:中国的域名。
+        // [路径] 强制使用`local_server`解析的域名名单 建议:中国的域名。
         "local_forced_domain_list": "/path/to/your/domain/list",
 
-        // [路径] 本地服务器域名黑名单 建议:希望强制打开国外版而非中国版的域名。
+        // [路径] `local_server`域名黑名单 建议:希望强制打开国外版而非中国版的域名。
         "local_blocked_domain_list": "/path/to/your/domain/list",
 
         // [CIDR] EDNS Client Subnet 
@@ -76,9 +72,7 @@
 
 在这里下载最新版本：[release](https://github.com/IrineSistiana/mos-chinadns/releases)
 
-一份最新的中国大陆IPv4与IPv6的地址表`chn.list`和域名表`chn_domain.list`已包含在release的zip包中。
-
-`chn.list`数据来自[APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)。`chn_domain.list`数据来自[felixonmars/dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list) [LICENSE](https://github.com/felixonmars/dnsmasq-china-list/blob/master/LICENSE)。
+[APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)中国大陆IP表`chn.list`和[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)域名表`chn_domain.list`已包含在release的zip包中。
 
 将预设配置复制并保存至`config.json`，确保`chn.list`，`chn_domain.list`，`config.json`和`mos-chinadns`在同一目录。
 
@@ -86,21 +80,7 @@
 
     mos-chinadns -c config.json -dir2exe
 
-<details><summary><code>预设配置1 通用 按大陆IP与域名分流</code></summary><br>
-
-使用中国大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用`OpenDNS`解析。
-
-    {
-        "bind_addr": "127.0.0.1:53",
-        "local_server": "223.5.5.5:53",
-        "remote_server": "208.67.222.222:443",
-        "local_allowed_ip_list": "./chn.list",
-        "local_forced_domain_list": "./chn_domain.list"
-    }
-
-</details>
-
-<details><summary><code>预设配置2 通用 按大陆IP与域名分流 远程服务器使用DoH</code></summary><br>
+<details><summary><code>预设配置1 通用 按大陆IP与域名分流 `remote_server`使用DoH</code></summary><br>
 
 使用中国大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)解析。
 
@@ -115,21 +95,37 @@
 
 </details>
 
-<details><summary><code>预设配置3 单DoH客户端模式</code></summary><br>
+<details><summary><code>预设配置2 通用 按大陆IP与域名分流</code></summary><br>
 
-使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器，解析所有域名。
+使用中国大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用`OpenDNS`解析。
 
-建议启用ECS使解析更精确。[如何启用?](#关于edns-client-subnet-ecs)
+    {
+        "bind_addr": "127.0.0.1:53",
+        "local_server": "223.5.5.5:53",
+        "remote_server": "208.67.222.222:443",
+        "local_allowed_ip_list": "./chn.list",
+        "local_forced_domain_list": "./chn_domain.list"
+    }
+
+</details>
+
+<details><summary><code>预设配置3 DoH转发模式</code></summary><br>
+
+使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。建议启用ECS使解析更精确。[如何启用?](#其他细节)
 
     {
         "bind_addr": "127.0.0.1:53",
         "remote_server": "8.8.8.8:443",
         "remote_server_url": "https://dns.google/dns-query",
-        "remote_server_skip_verify": false,
-        "remote_server_delay_start": 0
     }
 
+如果你正在找一个最简单的DoH转发器，建议使用[mos-doh-client](https://github.com/IrineSistiana/mos-doh-client)。无需配置，命令行启动。
+
 </details>
+
+## 更新中国大陆IP与域名列表
+
+如果你想自己更新中国大陆IP与域名列表。[release_chn_ip_domain_updater.py](https://github.com/IrineSistiana/mos-chinadns/blob/master/release_chn_ip_domain_updater.py`)能自动下载数据并生成`chn.list`，`chn_domain.list`到当前目录。
 
 ## 分流效果
 
@@ -192,24 +188,43 @@
 
 </details>
 
-## 实现细节
+## 其他细节
 
-### 黑白名单
+**如何使用EDNS Client Subnet (ECS)**
 
-**流程**
+`remote_ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
 
-1. 如果指定了域名白名单->匹配域名->白名单中的域名将被本地服务器解析
-2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被远程服务器解析
-3. 如果指定了IP黑名单->匹配本地服务器返回的IP->丢弃黑名单中的结果。
-4. 如果指定了IP白名单->匹配本地服务器返回的IP->不在白名单的结果将被丢弃。
+启用ECS最简单的方法:
 
-远程服务器的结果一定会被接受
+- 百度搜索`IP`，得到自己的IP地址，如`1.2.3.4`
+- 将最后一位变`0`，并加上`/24`。如`1.2.3.4`变`1.2.3.0/24`
+- 将`1.2.3.0/24`填入`remote_ecs_subnet`
+
+**如何使用DNS-over-HTTPS (DoH)**
+
+填入同时填入`remote_server`和`remote_server_url``remote_server`将会使用DoH模式。请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
+
+**关于文件路径**
+
+建议使用`-dir2exe`选项将工作目录设置为程序所在目录，这样的话配置文件`-c`路径和配置文件中的路径可以是相对于程序的相对路径。
+
+如果附加`-dir2exe`后程序启动报错那就只能启动程序前手动`cd`或者使用绝对路径。
+
+**local_server黑白名单处理流程**
+
+1. 如果指定了域名白名单->匹配域名->白名单中的域名将被`local_server`解析
+2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被`remote_server`解析
+3. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果。
+4. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果。
+5. 接受结果
+
+`remote_server`的结果一定会被接受
 
 **域名黑/白名单格式**
 
 采用按域向前匹配的方式，与dnsmasq匹配方式类似。每个表达式一行。
 
-规则：
+规则示例：
 
 * `cn`相当于`*.cn`。会匹配所有以cn结尾的域名，`example.cn`，`www.google.cn`
 * `google.com`相当于`*.google.com`。会匹配`www.google.com`, `www.l.google.com`，但不会匹配`www.google.cn`。
@@ -226,41 +241,10 @@
 由单个IP或CIDR构成，每个表达式一行，支持IPv6，比如：
 
     1.0.1.0/24
-    1.0.2.0/23
-    1.0.8.0/21
     2001:dd8:1a::/48
 
     2.2.2.2
-    3.3.3.3
     2001:ccd:1a
-
-**性能**
-
-IP列表与域名列表均已做性能优化。IP列表采用二分搜索，数据仅存储在一个对象上。域名列表采用Hash，数据仅存储在三个对象上。无需担心长列表的匹配时间与GC的压力。
-
-### 关于EDNS Client Subnet (ECS)
-
-`remote_ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
-
-启用ECS最简单的方法:
-
-- 百度搜索`IP`，得到自己的IP地址，如`1.2.3.4`
-- 将最后一位变`0`，并加上`/24`。如`1.2.3.4`变`1.2.3.0/24`
-- 将`1.2.3.0/24`填入`remote_ecs_subnet`
-
-更多ECS资料请参考rfc文档：[EDNS Client Subnet](https://tools.ietf.org/html/rfc7871)
-
-### 关于DNS-over-HTTPS (DoH)
-
-填入同时填入`remote_server`和`remote_server_url`即可启用DoH模式。请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
-
-想了解有那些服务器支持DoH，请参阅[维基百科公共域名解析服务列表](https://en.wikipedia.org/wiki/Public_recursive_name_server)。
-
-### 关于文件路径
-
-建议使用`-dir2exe`选项将工作目录设置为程序所在目录，这样的话配置文件`-c`路径和配置文件中的路径可以是相对于程序的相对路径。
-
-如过附加`-dir2exe`后程序启动报错那就只能启动程序前手动`cd`或者使用绝对路径。
 
 ## Open Source Components / Libraries
 
