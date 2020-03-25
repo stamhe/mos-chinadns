@@ -29,7 +29,7 @@ import (
 
 	"github.com/IrineSistiana/mos-chinadns/domainlist"
 
-	dohClient "github.com/IrineSistiana/mos-doh-client/client"
+	"github.com/IrineSistiana/mos-chinadns/dohclient"
 
 	"github.com/miekg/dns"
 
@@ -45,13 +45,15 @@ type dispatcher struct {
 	remoteServerDelayStart      time.Duration
 
 	localClient     *dns.Client
+	localDoHClient  *dohclient.DoHClient
 	remoteClient    *dns.Client
-	remoteDoHClient *dohClient.DoHClient
+	remoteDoHClient *dohclient.DoHClient
 
 	localAllowedIPList     *netlist.List
 	localBlockedIPList     *netlist.List
 	localAllowedDomainList *domainlist.List
 	localBlockedDomainList *domainlist.List
+	localECS               *dns.EDNS0_SUBNET
 	remoteECS              *dns.EDNS0_SUBNET
 
 	entry *logrus.Entry
@@ -76,13 +78,9 @@ func getTimer(t time.Duration) *time.Timer {
 	if !ok {
 		return time.NewTimer(t)
 	}
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
+	if timer.Reset(t) {
+		panic("dispather: active timer trapped in timerPool")
 	}
-	timer.Reset(t)
 	return timer
 }
 
@@ -110,16 +108,20 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 	if len(conf.LocalServer) != 0 {
 		d.localServer = conf.LocalServer
-		d.localClient = &dns.Client{
-			Net:            "udp",
-			SingleInflight: false,
+		if len(conf.LocalServerURL) != 0 {
+			d.localDoHClient = dohclient.NewClient(conf.LocalServerURL, conf.LocalServer, conf.LocalServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout)
+		} else {
+			d.localClient = &dns.Client{
+				Net:            "udp",
+				SingleInflight: false,
+			}
 		}
 	}
 	d.localServerBlockUnusualType = conf.LocalServerBlockUnusualType
 	if len(conf.RemoteServer) != 0 {
 		d.remoteServer = conf.RemoteServer
 		if len(conf.RemoteServerURL) != 0 {
-			d.remoteDoHClient = dohClient.NewClient(conf.RemoteServerURL, conf.RemoteServer, conf.RemoteServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout, d.entry)
+			d.remoteDoHClient = dohclient.NewClient(conf.RemoteServerURL, conf.RemoteServer, conf.RemoteServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout)
 		} else {
 			d.remoteClient = &dns.Client{
 				Net:            "udp",
@@ -168,47 +170,69 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		d.localBlockedDomainList = dl
 	}
 
+	if len(conf.LocalECSSubnet) != 0 {
+		ecs, err := newEDNSSubnet(conf.LocalECSSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("parsing local ECS subnet, %w", err)
+		}
+		d.localECS = ecs
+		d.entry.Info("initDispather: local server ECS enabled")
+	}
+
 	if len(conf.RemoteECSSubnet) != 0 {
-		strs := strings.SplitN(conf.RemoteECSSubnet, "/", 2)
-		if len(strs) != 2 {
-			return nil, fmt.Errorf("invalid ECS address [%s], not a CIDR notation", conf.RemoteECSSubnet)
+		ecs, err := newEDNSSubnet(conf.RemoteECSSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("parsing remote ECS subnet, %w", err)
 		}
-
-		ip := net.ParseIP(strs[0])
-		if ip == nil {
-			return nil, fmt.Errorf("invalid ECS address [%s], invalid ip", conf.RemoteECSSubnet)
-		}
-		sourceNetmask, err := strconv.Atoi(strs[1])
-		if err != nil || sourceNetmask > 128 || sourceNetmask < 0 {
-			return nil, fmt.Errorf("invalid ECS address [%s], invalid net mask", conf.RemoteECSSubnet)
-		}
-
-		ednsSubnet := new(dns.EDNS0_SUBNET)
-		// edns family: https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
-		// ipv4 = 1
-		// ipv6 = 2
-		if ip4 := ip.To4(); ip4 != nil {
-			ednsSubnet.Family = 1
-			ednsSubnet.SourceNetmask = uint8(sourceNetmask)
-			ip = ip4
-		} else {
-			if ip6 := ip.To16(); ip6 != nil {
-				ednsSubnet.Family = 2
-				ednsSubnet.SourceNetmask = uint8(sourceNetmask)
-				ip = ip6
-			} else {
-				return nil, fmt.Errorf("invalid ECS address [%s], it's not an ipv4 or ipv6 address", conf.RemoteECSSubnet)
-			}
-		}
-
-		ednsSubnet.Code = dns.EDNS0SUBNET
-		ednsSubnet.Address = ip
-		ednsSubnet.SourceScope = 0
-		d.remoteECS = ednsSubnet
-		d.entry.Info("initDispather: ECS enabled")
+		d.remoteECS = ecs
+		d.entry.Info("initDispather: remote server ECS enabled")
 	}
 
 	return d, nil
+}
+
+func newEDNSSubnet(strECSSubnet string) (*dns.EDNS0_SUBNET, error) {
+	strs := strings.SplitN(strECSSubnet, "/", 2)
+	if len(strs) != 2 {
+		return nil, fmt.Errorf("invalid ECS address [%s], not a CIDR notation", strECSSubnet)
+	}
+
+	ip := net.ParseIP(strs[0])
+	if ip == nil {
+		return nil, fmt.Errorf("invalid ECS address [%s], invalid ip", strECSSubnet)
+	}
+	sourceNetmask, err := strconv.Atoi(strs[1])
+	if err != nil || sourceNetmask > 128 || sourceNetmask < 0 {
+		return nil, fmt.Errorf("invalid ECS address [%s], invalid net mask", strECSSubnet)
+	}
+
+	ednsSubnet := new(dns.EDNS0_SUBNET)
+	// edns family: https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
+	// ipv4 = 1
+	// ipv6 = 2
+	if ip4 := ip.To4(); ip4 != nil {
+		ednsSubnet.Family = 1
+		ednsSubnet.SourceNetmask = uint8(sourceNetmask)
+		ip = ip4
+	} else {
+		if ip6 := ip.To16(); ip6 != nil {
+			ednsSubnet.Family = 2
+			ednsSubnet.SourceNetmask = uint8(sourceNetmask)
+			ip = ip6
+		} else {
+			return nil, fmt.Errorf("invalid ECS address [%s], it's not an ipv4 or ipv6 address", strECSSubnet)
+		}
+	}
+
+	ednsSubnet.Code = dns.EDNS0SUBNET
+	ednsSubnet.Address = ip
+
+	// SCOPE PREFIX-LENGTH, an unsigned octet representing the leftmost
+	// number of significant bits of ADDRESS that the response covers.
+	// In queries, it MUST be set to 0.
+	// https://tools.ietf.org/html/rfc7871
+	ednsSubnet.SourceScope = 0
+	return ednsSubnet, nil
 }
 
 func (d *dispatcher) ListenAndServe(network string) error {
@@ -260,7 +284,7 @@ func (d *dispatcher) hasRemote() bool {
 }
 
 func (d *dispatcher) hasLocal() bool {
-	return d.localClient != nil
+	return d.localClient != nil || d.localDoHClient != nil
 }
 
 // serveDNS: r might be nil
@@ -325,7 +349,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		go func() {
 			defer wg.Done()
 			requestLogger.Debug("serveDNS: query local server")
-			res, rtt, err := d.queryLocal(ctx, q)
+			res, rtt, err := d.queryLocal(ctx, q, requestLogger)
 			if err != nil {
 				requestLogger.Warnf("serveDNS: local server failed: %v", err)
 				close(localServerFailed)
@@ -366,7 +390,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 			}
 
 			requestLogger.Debug("serveDNS: query remote server")
-			res, rtt, err := d.queryRemote(ctx, q)
+			res, rtt, err := d.queryRemote(ctx, q, requestLogger)
 			if err != nil {
 				requestLogger.Warnf("serveDNS: remote server failed: %v", err)
 				return
@@ -400,19 +424,28 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	}
 }
 
-func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg) (*dns.Msg, time.Duration, error) {
+func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+	if d.localECS != nil {
+		appendECSIfNotExist(q, d.localECS)
+	}
+	if d.localDoHClient != nil {
+		t := time.Now()
+		r, err := d.localDoHClient.Exchange(q, requestLogger)
+		return r, time.Since(t), err
+	}
+
 	return d.localClient.ExchangeContext(ctx, q, d.localServer)
 }
 
 //queryRemote WARNING: to save memory we may modify q directly.
-func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg) (*dns.Msg, time.Duration, error) {
+func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
 	if d.remoteECS != nil {
 		appendECSIfNotExist(q, d.remoteECS)
 	}
 
 	if d.remoteDoHClient != nil {
 		t := time.Now()
-		r, err := d.remoteDoHClient.Exchange(q)
+		r, err := d.remoteDoHClient.Exchange(q, requestLogger)
 		return r, time.Since(t), err
 	}
 

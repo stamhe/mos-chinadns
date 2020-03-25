@@ -6,7 +6,7 @@
 
 - [mos-chinadns](#mos-chinadns)
   - [命令帮助](#命令帮助)
-  - [配置文件说明](#配置文件说明)
+  - [json配置文件](#json配置文件)
   - [三分钟快速上手 & 预设配置](#三分钟快速上手--预设配置)
   - [更新中国大陆IP与域名列表](#更新中国大陆ip与域名列表)
   - [分流效果](#分流效果)
@@ -24,15 +24,24 @@
     -q          安静模式，无log
     -no-tcp     不监听tcp，只监听udp
     -no-udp     不监听udp，只监听tcp
+    -cpu        使用CPU核数 
 
-## 配置文件说明
+## json配置文件
+
+<details><summary><code>json配置文件说明与示例</code></summary><br>
 
     {
-        // [IP:端口][必需] 监听地址
+        // [IP:端口][必需] 监听地址。
         "bind_addr": "127.0.0.1:53", 
 
         // [IP:端口] `local_server`地址 建议:一个低延时但会被污染大陆服务器，用于解析大陆域名。
-        "local_server": "223.5.5.5:53",     
+        "local_server": "223.5.5.5:53",    
+
+        // [URL] DoH服务器的url，如果填入，`local_server`将使用DoH协议
+        "local_server_url": "https://223.5.5.5/dns-query",
+
+        // [bool] 是否跳过验证`local_server`DoH服务器身份。
+        "local_server_skip_verify": false,
 
         // [bool] `local_server`是否屏蔽非A或AAAA请求。
         "local_server_block_unusual_type": false,
@@ -40,15 +49,16 @@
         // [IP:端口] `remote_server`地址 建议:一个无污染的服务器。用于解析非大陆域名。   
         "remote_server": "8.8.8.8:443", 
 
-        // [URL] 远程DoH服务器的url，如果填入，`remote_server`将使用DoH协议
+        // [URL] DoH服务器的url，如果填入，`remote_server`将使用DoH协议。
         "remote_server_url": "https://dns.google/dns-query",  
 
-        // [bool] 是否跳过验证DoH服务器身份 高危选项，会破坏DoH的安全性
+        // [bool] 是否跳过验证`remote_server`DoH服务器身份。
         "remote_server_skip_verify": false, 
 
-        // [int] 单位毫秒 `remote_server`延时启动时间
-        // 如果在设定时间(单位毫秒)后local_server无响应或失败，则开始请求remote_server。
-        // 如果local_server延时较低，将该值设定为120%的local_server的延时可显著降低请求remote_server的次数。
+        // [int] 单位毫秒 `remote_server`延时启动时间。
+        // 如果在设定时间(单位毫秒)后`local_server`无响应或失败，则开始请求`remote_server`。
+        // 如果`local_server`延时较低，将该值设定为120%的`local_server`的延时可显著降低请求`remote_server`的次数。
+        // 该选项主要用于缓解低运算力设备的压力。
         // 0表示禁用延时，请求将同时发送。
         "remote_server_delay_start": 0, 
 
@@ -65,8 +75,11 @@
         "local_blocked_domain_list": "/path/to/your/domain/list",
 
         // [CIDR] EDNS Client Subnet 
+        "local_ecs_subnet": "1.2.3.0/24",
         "remote_ecs_subnet": "1.2.3.0/24"
     }
+
+</details>
 
 ## 三分钟快速上手 & 预设配置
 
@@ -119,9 +132,9 @@
         "remote_server_url": "https://dns.google/dns-query",
     }
 
-如果你正在找一个最简单的DoH转发器，建议使用[mos-doh-client](https://github.com/IrineSistiana/mos-doh-client)。无需配置，命令行启动。
-
 </details>
+
+`mos-chinadns`的使用场景很丰富，以上配置示例能满足绝大多数需求。如需DIY配置请参阅：[完整的json配置文件与说明](#json配置文件)
 
 ## 更新中国大陆IP与域名列表
 
@@ -192,17 +205,17 @@
 
 **如何使用EDNS Client Subnet (ECS)**
 
-`remote_ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
+`ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
 
 启用ECS最简单的方法:
 
 - 百度搜索`IP`，得到自己的IP地址，如`1.2.3.4`
 - 将最后一位变`0`，并加上`/24`。如`1.2.3.4`变`1.2.3.0/24`
-- 将`1.2.3.0/24`填入`remote_ecs_subnet`
+- 将`1.2.3.0/24`填入`ecs_subnet`
 
-**如何使用DNS-over-HTTPS (DoH)**
+**DNS-over-HTTPS (DoH)**
 
-填入同时填入`remote_server`和`remote_server_url``remote_server`将会使用DoH模式。请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
+请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
 
 **关于文件路径**
 
@@ -210,15 +223,18 @@
 
 如果附加`-dir2exe`后程序启动报错那就只能启动程序前手动`cd`或者使用绝对路径。
 
-**local_server黑白名单处理流程**
+**请求流程与local_server黑白名单**
 
-1. 如果指定了域名白名单->匹配域名->白名单中的域名将被`local_server`解析
-2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被`remote_server`解析
-3. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果。
-4. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果。
-5. 接受结果
+1. 如果指定了域名白名单->匹配域名->白名单中的域名将被仅发往`local_server`解析
+2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被仅发往`remote_server`解析
+3. 发送至`local_server`与`remote_server`解析
+4. 如果请求仅由`local_server`解析->无条件接受返回结果->END
+5. 如果由`remote_server`与`local_server`同时解析->`local_server`返回的空结果会被丢弃
+6. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果
+7. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果
+8. 接受结果->END
 
-`remote_server`的结果一定会被接受
+`local_server`的结果会根据设置进行过滤，`remote_server`的结果一定会被接受。
 
 **域名黑/白名单格式**
 
@@ -245,6 +261,10 @@
 
     2.2.2.2
     2001:ccd:1a
+
+**Openwrt平台**
+
+需要安装CA证书包：`ca-bundle`或`ca-certificates`。否则无法验证DoH服务器身份。
 
 ## Open Source Components / Libraries
 

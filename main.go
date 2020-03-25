@@ -22,13 +22,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
 )
 
 var (
-	configPath  = flag.String("c", "", "[path] load config from file")
+	configPath  = flag.String("c", "config.json", "[path] load config from file")
 	genConfigTo = flag.String("gen", "", "[path] generate a config template here")
 
 	dir                 = flag.String("dir", "", "[path] change working directory to here")
@@ -39,10 +40,13 @@ var (
 
 	noUDP = flag.Bool("no-udp", false, "don't listen on udp socket")
 	noTCP = flag.Bool("no-tcp", false, "don't listen on tcp socket")
+
+	cpu = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 )
 
 func main() {
 	flag.Parse()
+	runtime.GOMAXPROCS(*cpu)
 
 	logger := logrus.New()
 	switch {

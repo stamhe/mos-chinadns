@@ -3,14 +3,6 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:3235b28bb9ae07a5ba5d248b96e5601c5f7bd88a8a9f208a628650deeae585ef"
-  name = "github.com/IrineSistiana/mos-doh-client"
-  packages = ["client"]
-  pruneopts = "UT"
-  revision = "e25c19bb17d7b5c968330e096810181de97461db"
-
-[[projects]]
-  branch = "master"
   digest = "1:5fdd8691fe20b8e953df2b48044a8d650808345ce8fb694a6b9d33558d654d20"
   name = "github.com/IrineSistiana/net-list"
   packages = ["."]
@@ -18,12 +10,12 @@
   revision = "22cc5a27e015cb393ea000861722602d7a787129"
 
 [[projects]]
-  digest = "1:04457f9f6f3ffc5fea48e71d62f2ca256637dee0a04d710288e27e05c8b41976"
+  digest = "1:0599141a8403114d34f1e546604ad6c5361b70dfa80e80c635f438cdbf71b43a"
   name = "github.com/Sirupsen/logrus"
   packages = ["."]
   pruneopts = "UT"
-  revision = "839c75faf7f98a33d445d181f3018b5c3409a45e"
-  version = "v1.4.2"
+  revision = "d417be0fe654de640a82370515129985b407c7e3"
+  version = "v1.5.0"
 
 [[projects]]
   digest = "1:e5e0d775194850f7f06c78f51015ec7c85a59a62613d1ad9847b5ba0f2a021c8"
@@ -82,7 +74,7 @@
     "ed25519/internal/edwards25519",
   ]
   pruneopts = "UT"
-  revision = "1b76d66859c6111b3d5c3ea6600ea44dc188bf12"
+  revision = "0ec3e9974c59449edd84298612e9f16fa13368e8"
 
 [[projects]]
   branch = "master"
@@ -96,18 +88,26 @@
     "ipv6",
   ]
   pruneopts = "UT"
-  revision = "63522dbf7eec79acb34c1eb827fb0527d168c182"
+  revision = "118fecf932d8fea033f3b7aca66fba22cfdd517d"
 
 [[projects]]
   branch = "master"
-  digest = "1:70ad9a7394ce9ae89ca0ded5c02ddb0135ccfc636d41a4d3b7c3a5c8cf39fd53"
+  digest = "1:4afdcaf2f776edc7fc481d0c4cc5a1ebae7e407076690c8c8dbab6f287c31c76"
+  name = "golang.org/x/sync"
+  packages = ["singleflight"]
+  pruneopts = "UT"
+  revision = "43a5402ce75a95522677f77c619865d66b8c57ab"
+
+[[projects]]
+  branch = "master"
+  digest = "1:1fbab312c7e34ca131dd8431962292dbc808001f2d07eedcf4b4bdfae7b06372"
   name = "golang.org/x/sys"
   packages = [
     "unix",
     "windows",
   ]
   pruneopts = "UT"
-  revision = "5766fd39f98ddd8d769ad4aedcee557dd28de90f"
+  revision = "85ca7c5b95cdf1e557abb38a283d1e61a5959c31"
 
 [[projects]]
   branch = "master"
@@ -124,16 +124,17 @@
     "internal/packagesinternal",
   ]
   pruneopts = "UT"
-  revision = "521f4a0cd458c441dec3bafd8ba24526a6cb9b09"
+  revision = "a576cf524670603350282ba181c0efbd384b0892"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/IrineSistiana/mos-doh-client/client",
     "github.com/IrineSistiana/net-list",
     "github.com/Sirupsen/logrus",
     "github.com/miekg/dns",
+    "github.com/valyala/fasthttp",
+    "golang.org/x/sync/singleflight",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
