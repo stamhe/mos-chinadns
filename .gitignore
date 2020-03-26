@@ -16,3 +16,6 @@
 
 # china ip and domain list
 chn*.list
+
+# vs code and debug
+.vscode/

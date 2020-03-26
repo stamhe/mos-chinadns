@@ -38,10 +38,11 @@ import (
 type DoHClient struct {
 	preparedURL []byte
 
-	fasthttpClient fasthttp.HostClient
+	// why using pointer: uint64 atomic value inside HostClient.
+	// avoids 32-bit system encountering "invalid memory address" panic
+	fasthttpClient *fasthttp.HostClient
 
-	group   singleflight.Group
-	timeout time.Duration
+	group singleflight.Group
 }
 
 // NewClient returns a doh client
@@ -63,10 +64,11 @@ func NewClient(url, addr string, sv bool, maxSize int, timeout time.Duration) *D
 
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: sv,
+		ClientSessionCache: tls.NewLRUClientSessionCache(8),
 	}
 	c := &DoHClient{
 		preparedURL: []byte(url + queryParameter8484),
-		fasthttpClient: fasthttp.HostClient{
+		fasthttpClient: &fasthttp.HostClient{
 			Addr: host,
 			Dial: func(_ string) (net.Conn, error) {
 				return net.Dial("tcp", addr)
@@ -78,7 +80,6 @@ func NewClient(url, addr string, sv bool, maxSize int, timeout time.Duration) *D
 			MaxResponseBodySize:           maxSize,
 			DisableHeaderNamesNormalizing: true,
 		},
-		timeout: timeout,
 	}
 	return c
 }
@@ -174,7 +175,8 @@ func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) (*dns.Ms
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	if err := c.fasthttpClient.DoTimeout(req, resp, c.timeout); err != nil {
+	// no needs to call DoTimeout, we already set the io timeout
+	if err := c.fasthttpClient.Do(req, resp); err != nil {
 		return nil, fmt.Errorf("DoTimeout: %w", err)
 	}
 

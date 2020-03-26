@@ -18,6 +18,7 @@
 package dohclient
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -35,12 +36,14 @@ func Test_dohClient(t *testing.T) {
 	q.SetQuestion(dns.Fqdn("www.baidu.com"), dns.TypeAAAA)
 
 	start := time.Now()
+	println("query 0")
 	c.Exchange(q, requestLogger)
-	println(time.Since(start).String())
+	println("query 0: " + time.Since(start).String())
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
+		n := i
 		go func() {
 			defer wg.Done()
 			start := time.Now()
@@ -49,9 +52,9 @@ func Test_dohClient(t *testing.T) {
 				t.Log(err)
 				return
 			}
-			println(time.Since(start).String())
+			fmt.Printf("query %d: %s\n", n, time.Since(start))
 		}()
 	}
 	wg.Wait()
-	println("total: " + time.Since(start).String())
+	fmt.Printf("total: %s", time.Since(start))
 }
