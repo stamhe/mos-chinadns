@@ -213,6 +213,14 @@
 - 将最后一位变`0`，并加上`/24`。如`1.2.3.4`变`1.2.3.0/24`
 - 将`1.2.3.0/24`填入`ecs_subnet`
 
+**域名分流使用dnsmasq还是mos-chinadns**
+
+一种常见的域名分流方式是dnsmasq配合[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)。但需注意dnsmasq匹配域名的方式是循环匹配。
+
+mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)中所有域名。但mos-chinadns采用hash匹配，匹配包含了上万条域名的列表，mos-chinadns所需时间远远(几个数量级)小于dnsmasq。延时更低。
+
+因此建议将域名分流的任务也交给mos-chinadns。dnsmasq仅负责缓存。
+
 **DNS-over-HTTPS (DoH)**
 
 请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
