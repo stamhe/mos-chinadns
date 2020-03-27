@@ -40,8 +40,8 @@
         // [URL] DoH服务器的url，如果填入，`local_server`将使用DoH协议
         "local_server_url": "https://223.5.5.5/dns-query",
 
-        // [bool] 是否跳过验证`local_server`DoH服务器身份。
-        "local_server_skip_verify": false,
+        // [path] 用于验证`local_server`的PEM格式CA证书的路径。默认使用系统证书池。
+        "local_server_pem_ca": "",
 
         // [bool] `local_server`是否屏蔽非A或AAAA请求。
         "local_server_block_unusual_type": false,
@@ -52,8 +52,8 @@
         // [URL] DoH服务器的url，如果填入，`remote_server`将使用DoH协议。
         "remote_server_url": "https://dns.google/dns-query",  
 
-        // [bool] 是否跳过验证`remote_server`DoH服务器身份。
-        "remote_server_skip_verify": false, 
+        // [path] 用于验证`remote_server`的PEM格式CA证书的路径。默认使用系统证书池。
+        "remote_server_pem_ca": "", 
 
         // [int] 单位毫秒 `remote_server`延时启动时间。
         // 如果在设定时间(单位毫秒)后`local_server`无响应或失败，则开始请求`remote_server`。
@@ -205,7 +205,7 @@
 
 **如何使用EDNS Client Subnet (ECS)**
 
-`ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
+`*_ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
 
 启用ECS最简单的方法:
 
@@ -216,6 +216,8 @@
 **DNS-over-HTTPS (DoH)**
 
 请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
+
+验证DoH服务器身份，默认使用系统证书池，或通过`*_server_pem_ca`参数提供的CA证书。
 
 **关于文件路径**
 
@@ -261,10 +263,6 @@
 
     2.2.2.2
     2001:ccd:1a
-
-**Openwrt平台**
-
-需要安装CA证书包：`ca-bundle`或`ca-certificates`。否则无法验证DoH服务器身份。
 
 ## Open Source Components / Libraries
 

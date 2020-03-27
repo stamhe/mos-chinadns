@@ -28,12 +28,12 @@ type Config struct {
 	BindAddr                    string `json:"bind_addr"`
 	LocalServer                 string `json:"local_server"`
 	LocalServerURL              string `json:"local_server_url"`
-	LocalServerSkipVerify       bool   `json:"local_server_skip_verify"`
+	LocalServerPEMCA            string `json:"local_server_pem_ca"`
 	LocalServerBlockUnusualType bool   `json:"local_server_block_unusual_type"`
 
 	RemoteServer           string `json:"remote_server"`
 	RemoteServerURL        string `json:"remote_server_url"`
-	RemoteServerSkipVerify bool   `json:"remote_server_skip_verify"`
+	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
 	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
 
 	LocalAllowedIPList     string `json:"local_allowed_ip_list"`

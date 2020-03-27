@@ -46,7 +46,7 @@ type DoHClient struct {
 }
 
 // NewClient returns a doh client
-func NewClient(url, addr string, sv bool, maxSize int, timeout time.Duration) *DoHClient {
+func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout time.Duration) *DoHClient {
 	// for ease to use, overwrite maxSize.
 	switch {
 	case maxSize > dns.MaxMsgSize:
@@ -62,10 +62,6 @@ func NewClient(url, addr string, sv bool, maxSize int, timeout time.Duration) *D
 		host = addr
 	}
 
-	tlsConf := &tls.Config{
-		InsecureSkipVerify: sv,
-		ClientSessionCache: tls.NewLRUClientSessionCache(8),
-	}
 	c := &DoHClient{
 		preparedURL: []byte(url + queryParameter8484),
 		fasthttpClient: &fasthttp.HostClient{
@@ -74,7 +70,7 @@ func NewClient(url, addr string, sv bool, maxSize int, timeout time.Duration) *D
 				return net.Dial("tcp", addr)
 			},
 			IsTLS:                         true,
-			TLSConfig:                     tlsConf,
+			TLSConfig:                     tlsConfig,
 			ReadTimeout:                   timeout,
 			WriteTimeout:                  timeout,
 			MaxResponseBodySize:           maxSize,

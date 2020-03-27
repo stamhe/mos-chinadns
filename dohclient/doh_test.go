@@ -31,7 +31,7 @@ import (
 //注意：这个test不正规，而且永远会pass。手动debug用。
 func Test_dohClient(t *testing.T) {
 	requestLogger := logrus.NewEntry(logrus.StandardLogger())
-	c := NewClient("https://223.5.5.5/dns-query", "223.5.5.5:443", false, dns.MaxMsgSize, time.Second*3)
+	c := NewClient("https://223.5.5.5/dns-query", "223.5.5.5:443", nil, dns.MaxMsgSize, time.Second*3)
 	q := new(dns.Msg)
 	q.SetQuestion(dns.Fqdn("www.baidu.com"), dns.TypeAAAA)
 

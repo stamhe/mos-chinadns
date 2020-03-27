@@ -19,8 +19,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"strconv"
 	"strings"
@@ -109,7 +112,16 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalServer) != 0 {
 		d.localServer = conf.LocalServer
 		if len(conf.LocalServerURL) != 0 {
-			d.localDoHClient = dohclient.NewClient(conf.LocalServerURL, conf.LocalServer, conf.LocalServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout)
+			rootCA, err := caPath2Pool(conf.LocalServerPEMCA)
+			if err != nil {
+				return nil, fmt.Errorf("LocalServerBase64CA: caPath2Pool: %w", err)
+			}
+			tlsConf := &tls.Config{
+				// don't have to set servername here, fasthttp will do it itself.
+				RootCAs:            rootCA,
+				ClientSessionCache: tls.NewLRUClientSessionCache(8),
+			}
+			d.localDoHClient = dohclient.NewClient(conf.LocalServerURL, conf.LocalServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
 		} else {
 			d.localClient = &dns.Client{
 				Net:            "udp",
@@ -121,7 +133,16 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.RemoteServer) != 0 {
 		d.remoteServer = conf.RemoteServer
 		if len(conf.RemoteServerURL) != 0 {
-			d.remoteDoHClient = dohclient.NewClient(conf.RemoteServerURL, conf.RemoteServer, conf.RemoteServerSkipVerify, dns.MaxMsgSize, dohQueryTimeout)
+			rootCA, err := caPath2Pool(conf.RemoteServerPEMCA)
+			if err != nil {
+				return nil, fmt.Errorf("RemoteServerBase64CA: caPath2Pool: %w", err)
+			}
+			tlsConf := &tls.Config{
+				// don't have to set servername here, fasthttp will do it itself.
+				RootCAs:            rootCA,
+				ClientSessionCache: tls.NewLRUClientSessionCache(8),
+			}
+			d.remoteDoHClient = dohclient.NewClient(conf.RemoteServerURL, conf.RemoteServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
 		} else {
 			d.remoteClient = &dns.Client{
 				Net:            "udp",
@@ -543,4 +564,19 @@ func anwsersMatchNetList(anwser []dns.RR, list *netlist.List, requestLogger *log
 		requestLogger.Debug("anwsersMatchNetList: answer section has no A or AAAA record")
 	}
 	return false
+}
+
+func caPath2Pool(ca string) (*x509.CertPool, error) {
+	certPEMBlock, err := ioutil.ReadFile(ca)
+	if err != nil {
+		return nil, fmt.Errorf("ReadFile: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(certPEMBlock)
+	if err != nil {
+		return nil, fmt.Errorf("ParseCertificate: %w", err)
+	}
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(cert)
+	return rootCAs, nil
 }
