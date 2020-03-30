@@ -11,7 +11,7 @@
   - [更新中国大陆IP与域名列表](#更新中国大陆ip与域名列表)
   - [分流效果](#分流效果)
   - [其他细节](#其他细节)
-  - [Open Source Components / Libraries](#open-source-components--libraries)
+  - [Open Source Components / Libraries / Reference](#open-source-components--libraries--reference)
 
 ## 命令帮助
 
@@ -74,7 +74,7 @@
         // [路径] `local_server`域名黑名单 建议:希望强制打开国外版而非中国版的域名。
         "local_blocked_domain_list": "/path/to/your/domain/list",
 
-        // [CIDR] EDNS Client Subnet 
+        // [CIDR] EDNS Client Subnet。填入自己的IP段即可启用ECS。如不详请务必留空。 
         "local_ecs_subnet": "1.2.3.0/24",
         "remote_ecs_subnet": "1.2.3.0/24"
     }
@@ -85,7 +85,7 @@
 
 在这里下载最新版本：[release](https://github.com/IrineSistiana/mos-chinadns/releases)
 
-[APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)中国大陆IP表`chn.list`和[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)域名表`chn_domain.list`已包含在release的zip包中。
+中国大陆IP表`chn.list`和域名表`chn_domain.list`已包含在release的zip包中。
 
 将预设配置复制并保存至`config.json`，确保`chn.list`，`chn_domain.list`，`config.json`和`mos-chinadns`在同一目录。
 
@@ -124,7 +124,7 @@
 
 <details><summary><code>预设配置3 DoH转发模式</code></summary><br>
 
-使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。建议启用ECS使解析更精确。[如何启用?](#其他细节)
+使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -138,7 +138,7 @@
 
 ## 更新中国大陆IP与域名列表
 
-如果你想自己更新中国大陆IP与域名列表。[release_chn_ip_domain_updater.py](https://github.com/IrineSistiana/mos-chinadns/blob/master/release_chn_ip_domain_updater.py)能自动下载数据并生成`chn.list`，`chn_domain.list`到当前目录。
+[release_chn_ip_domain_updater.py](https://github.com/IrineSistiana/mos-chinadns/blob/master/release_chn_ip_domain_updater.py)能自动下载数据并生成中国大陆IP与域名列表`chn.list`，`chn_domain.list`到当前目录。
 
 ## 分流效果
 
@@ -203,23 +203,13 @@
 
 ## 其他细节
 
-**如何使用EDNS Client Subnet (ECS)**
-
-`*_ecs_subnet` 填入自己的IP段即可启用ECS。如不详请务必留空。
-
-启用ECS最简单的方法:
-
-- 百度搜索`IP`，得到自己的IP地址，如`1.2.3.4`
-- 将最后一位变`0`，并加上`/24`。如`1.2.3.4`变`1.2.3.0/24`
-- 将`1.2.3.0/24`填入`ecs_subnet`
-
 **域名分流使用dnsmasq还是mos-chinadns**
 
-一种常见的域名分流方式是dnsmasq配合[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)。但需注意dnsmasq匹配域名的方式是循环匹配。
+一种常见的域名分流方式是dnsmasq配合[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)。但dnsmasq匹配域名的方式是循环匹配。
 
-mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)中所有域名。但mos-chinadns采用hash匹配，匹配包含了上万条域名的列表，mos-chinadns所需时间远远(几个数量级)小于dnsmasq。延时更低。
+mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)中所有域名。但mos-chinadns采用hash匹配，匹配包含了上万条域名的列表，mos-chinadns所需时间远远(几个数量级)小于dnsmasq。
 
-因此建议将域名分流的任务也交给mos-chinadns。dnsmasq仅负责缓存。
+因此建议将域名分流的任务交给mos-chinadns。dnsmasq仅负责缓存。
 
 **DNS-over-HTTPS (DoH)**
 
@@ -272,7 +262,7 @@ mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.
     2.2.2.2
     2001:ccd:1a
 
-## Open Source Components / Libraries
+## Open Source Components / Libraries / Reference
 
 部分设计参考
 
@@ -283,3 +273,8 @@ mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.
 * [sirupsen/logrus](https://github.com/sirupsen/logrus): [MIT](https://github.com/sirupsen/logrus/blob/master/LICENSE)
 * [miekg/dns](https://github.com/miekg/dns): [LICENSE](https://github.com/miekg/dns/blob/master/LICENSE)
 * [valyala/fasthttp](https://github.com/valyala/fasthttp):[MIT](https://github.com/valyala/fasthttp/blob/master/LICENSE)
+
+资源
+
+* `chn_domain.list`数据来自: [dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)[LICENSE](https://github.com/felixonmars/dnsmasq-china-list/blob/master/LICENSE)
+* `chn.list`数据来自: [APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)
