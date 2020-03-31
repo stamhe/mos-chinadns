@@ -112,9 +112,13 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.LocalServer) != 0 {
 		d.localServer = conf.LocalServer
 		if len(conf.LocalServerURL) != 0 {
-			rootCA, err := caPath2Pool(conf.LocalServerPEMCA)
-			if err != nil {
-				return nil, fmt.Errorf("LocalServerBase64CA: caPath2Pool: %w", err)
+			var rootCA *x509.CertPool
+			var err error
+			if len(conf.LocalServerPEMCA) != 0 {
+				rootCA, err = caPath2Pool(conf.LocalServerPEMCA)
+				if err != nil {
+					return nil, fmt.Errorf("LocalServerBase64CA: caPath2Pool: %w", err)
+				}
 			}
 			tlsConf := &tls.Config{
 				// don't have to set servername here, fasthttp will do it itself.
@@ -133,9 +137,13 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	if len(conf.RemoteServer) != 0 {
 		d.remoteServer = conf.RemoteServer
 		if len(conf.RemoteServerURL) != 0 {
-			rootCA, err := caPath2Pool(conf.RemoteServerPEMCA)
-			if err != nil {
-				return nil, fmt.Errorf("RemoteServerBase64CA: caPath2Pool: %w", err)
+			var rootCA *x509.CertPool
+			var err error
+			if len(conf.RemoteServerPEMCA) != 0 {
+				rootCA, err = caPath2Pool(conf.RemoteServerPEMCA)
+				if err != nil {
+					return nil, fmt.Errorf("RemoteServerBase64CA: caPath2Pool: %w", err)
+				}
 			}
 			tlsConf := &tls.Config{
 				// don't have to set servername here, fasthttp will do it itself.
