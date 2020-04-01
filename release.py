@@ -50,7 +50,7 @@ def init_release_resources():
                           shell=True, env=os.environ.copy())
 
     if len(sys.argv) > 1  and '-list' in sys.argv[1:]:
-        from release_chn_ip_domain_updater import update_domain, update_ip
+        from scripts.update_chn_ip_domain import update_domain, update_ip
         update_domain()
         update_ip()
 
