@@ -18,7 +18,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -64,6 +63,7 @@ type dispatcher struct {
 
 const (
 	queryTimeout    = time.Second * 3
+	udpQueryTimeout = time.Second * 3
 	dohQueryTimeout = time.Second * 3
 )
 
@@ -128,6 +128,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			d.localDoHClient = dohclient.NewClient(conf.LocalServerURL, conf.LocalServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
 		} else {
 			d.localClient = &dns.Client{
+				Timeout:        udpQueryTimeout,
 				Net:            "udp",
 				SingleInflight: false,
 			}
@@ -153,6 +154,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			d.remoteDoHClient = dohclient.NewClient(conf.RemoteServerURL, conf.RemoteServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
 		} else {
 			d.remoteClient = &dns.Client{
+				Timeout:        udpQueryTimeout,
 				Net:            "udp",
 				SingleInflight: false,
 			}
@@ -273,17 +275,19 @@ func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	r := d.serveDNS(q)
 	if r != nil {
 		buf := bufPool512.Get().([]byte)
-		defer bufPool512.Put(buf)
-
 		data, err := r.PackBuffer(buf)
-		if err != nil {
-			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
-		}
-		if len(data) > len(buf) {
+		if cap(data) > cap(buf) {
 			// data is a new allocated buffer, it's bigger than buf
 			// so it's ok to put it back to pool
 			defer bufPool512.Put(data[:cap(data)])
+		} else {
+			defer bufPool512.Put(buf)
 		}
+		if err != nil {
+			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
+			return
+		}
+
 		_, err = w.Write(data)
 		if err != nil {
 			d.entry.Warnf("ServeDNS: Write: %v", err)
@@ -361,9 +365,6 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		doRemote = false
 	}
 
-	ctx, cancelQuery := context.WithTimeout(context.Background(), queryTimeout)
-	defer cancelQuery()
-
 	resChan := make(chan *dns.Msg, 1)
 	wgChan := make(chan struct{}, 0)
 	wg := sync.WaitGroup{}
@@ -378,7 +379,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		go func() {
 			defer wg.Done()
 			requestLogger.Debug("serveDNS: query local server")
-			res, rtt, err := d.queryLocal(ctx, q, requestLogger)
+			res, rtt, err := d.queryLocal(q, requestLogger)
 			if err != nil {
 				requestLogger.Warnf("serveDNS: local server failed: %v", err)
 				close(localServerFailed)
@@ -409,17 +410,18 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 
 			if doLocal && d.remoteServerDelayStart > 0 {
 				timer := getTimer(d.remoteServerDelayStart)
-				defer releaseTimer(timer)
 				select {
 				case <-localServerDone:
+					releaseTimer(timer)
 					return
 				case <-localServerFailed:
 				case <-timer.C:
 				}
+				releaseTimer(timer)
 			}
 
 			requestLogger.Debug("serveDNS: query remote server")
-			res, rtt, err := d.queryRemote(ctx, q, requestLogger)
+			res, rtt, err := d.queryRemote(q, requestLogger)
 			if err != nil {
 				requestLogger.Warnf("serveDNS: remote server failed: %v", err)
 				return
@@ -439,21 +441,25 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		close(wgChan)
 	}()
 
+	timeoutTimer := getTimer(queryTimeout)
+	defer releaseTimer(timeoutTimer)
+
 	select {
 	case r := <-resChan:
 		return r
 	case <-wgChan:
+		requestLogger.Warn("serveDNS: query failed: all servers failed")
 		r := new(dns.Msg)
 		r.SetReply(q)
 		r.Rcode = dns.RcodeServerFailure
 		return r
-	case <-ctx.Done():
-		requestLogger.Warnf("serveDNS: query failed %v", ctx.Err())
+	case <-timeoutTimer.C:
+		requestLogger.Warn("serveDNS: query failed: timeout")
 		return nil
 	}
 }
 
-func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+func (d *dispatcher) queryLocal(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
 	if d.localECS != nil {
 		appendECSIfNotExist(q, d.localECS)
 	}
@@ -463,11 +469,11 @@ func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg, requestLogger *
 		return r, time.Since(t), err
 	}
 
-	return d.localClient.ExchangeContext(ctx, q, d.localServer)
+	return d.localClient.Exchange(q, d.localServer)
 }
 
 //queryRemote WARNING: to save memory we may modify q directly.
-func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+func (d *dispatcher) queryRemote(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
 	if d.remoteECS != nil {
 		appendECSIfNotExist(q, d.remoteECS)
 	}
@@ -478,7 +484,7 @@ func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg, requestLogger 
 		return r, time.Since(t), err
 	}
 
-	return d.remoteClient.ExchangeContext(ctx, q, d.remoteServer)
+	return d.remoteClient.Exchange(q, d.remoteServer)
 }
 
 // both q and ecs shouldn't be nil
@@ -514,7 +520,7 @@ func (d *dispatcher) dropLoaclRes(res *dns.Msg, requestLogger *logrus.Entry) boo
 	}
 
 	if res.Rcode != dns.RcodeSuccess {
-		requestLogger.Debug("dropLoaclRes: result Rcode != 0")
+		requestLogger.Debugf("dropLoaclRes: result Rcode is %s", dns.RcodeToString[res.Rcode])
 		return true
 	}
 
@@ -523,7 +529,7 @@ func (d *dispatcher) dropLoaclRes(res *dns.Msg, requestLogger *logrus.Entry) boo
 		return true
 	}
 
-	if isUnusualType(res) && !d.localServerBlockUnusualType {
+	if d.localServerBlockUnusualType && isUnusualType(res) {
 		requestLogger.Debug("dropLoaclRes: result is an unusual type")
 		return false
 	}

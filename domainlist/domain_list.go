@@ -1,14 +1,7 @@
 package domainlist
 
 import (
-	"errors"
-
 	"github.com/miekg/dns"
-)
-
-// error
-var (
-	ErrInvalidDomainName = errors.New("invalid doamin name")
 )
 
 type List struct {
@@ -25,39 +18,26 @@ func New() *List {
 	}
 }
 
-func (l *List) Add(domain string) error {
-
-	if _, ok := dns.IsDomainName(domain); !ok {
-		return ErrInvalidDomainName
-	}
-	fqdn := dns.Fqdn(domain)
+func (l *List) Add(fqdn string) {
 	n := len(fqdn)
 
 	switch {
-	case n <= 16 && n > 0:
+	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
 		l.s[b] = struct{}{}
-	case n <= 32 && n > 16:
+	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
 		l.m[b] = struct{}{}
-	case n > 32 && n <= 256:
+	default:
 		var b [256]byte
 		copy(b[:], fqdn)
 		l.l[b] = struct{}{}
-	default:
-		return ErrInvalidDomainName
 	}
-
-	return nil
 }
 
-func (l *List) Has(domain string) bool {
-	fqdn := dns.Fqdn(domain)
-	if _, ok := dns.IsDomainName(fqdn); !ok {
-		return false
-	}
+func (l *List) Has(fqdn string) bool {
 	e := dns.Split(fqdn)
 	for i := range e {
 		p := e[len(e)-1-i]
@@ -71,23 +51,21 @@ func (l *List) Has(domain string) bool {
 func (l *List) has(fqdn string) bool {
 	n := len(fqdn)
 	switch {
-	case n <= 16 && n > 0:
+	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
 		_, ok := l.s[b]
 		return ok
-	case n <= 32 && n > 16:
+	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
 		_, ok := l.m[b]
 		return ok
-	case n > 32 && n <= 256:
+	default:
 		var b [256]byte
 		copy(b[:], fqdn)
 		_, ok := l.l[b]
 		return ok
-	default:
-		return false
 	}
 }
 

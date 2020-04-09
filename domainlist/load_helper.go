@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/miekg/dns"
 )
 
 func LoadFormFile(file string) (*List, error) {
@@ -30,10 +32,12 @@ func LoadFormReader(r io.Reader) (*List, error) {
 			continue
 		}
 
-		err := l.Add(line)
-		if err != nil {
-			return nil, fmt.Errorf("invaild domain [%s], err: [%v]", line, err)
+		fqdn := dns.Fqdn(line)
+		if _, ok := dns.IsDomainName(fqdn); !ok {
+			return nil, fmt.Errorf("invaild domain [%s]", line)
 		}
+		l.Add(line)
+
 	}
 
 	return l, nil

@@ -56,5 +56,5 @@ func Test_dohClient(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	fmt.Printf("total: %s", time.Since(start))
+	fmt.Printf("total: %s\n", time.Since(start))
 }

@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -89,9 +90,14 @@ var (
 )
 
 // buf pool with len(b) >= 512
-var bufPool512 = &sync.Pool{
+var packBufPool512 = &sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 512)
+	}}
+
+var base64BufPool682 = &sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 682)
 	}}
 
 var bytesBufPool = sync.Pool{
@@ -111,28 +117,41 @@ func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 	qCopy := *q // just shadow copy, we only need to change q.Id
 	qCopy.Id = 0
 
-	buf := bufPool512.Get().([]byte)
-	defer bufPool512.Put(buf)
+	buf := packBufPool512.Get().([]byte)
 	wireMsg, err := qCopy.PackBuffer(buf)
-	if err != nil {
-		return nil, err
-	}
-	if len(wireMsg) > len(buf) {
+	if cap(wireMsg) > cap(buf) {
 		// this buf is larger than 512, it's ok to put it back to pool
-		defer bufPool512.Put(wireMsg[:cap(wireMsg)])
+		defer packBufPool512.Put(wireMsg[:cap(wireMsg)])
+	} else {
+		defer packBufPool512.Put(buf)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("PackBuffer: %w", err)
 	}
 
-	base64buf := make([]byte, base64.RawURLEncoding.EncodedLen(len(wireMsg)))
-	base64.RawURLEncoding.Encode(base64buf, wireMsg)
-	payload := string(base64buf)
+	base64Len := base64.RawURLEncoding.EncodedLen(len(wireMsg))
+	urlBuf := bytesBufPool.Get().(*bytes.Buffer)
+	defer bytesBufPool.Put(urlBuf)
+	urlBuf.Grow(len(c.preparedURL) + base64Len)
+	urlBuf.Reset()
+	urlBuf.Write(c.preparedURL)
 
-	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doWithPayload(base64buf, requestLogger) })
+	// Padding characters for base64url MUST NOT be included.
+	// See: https://tools.ietf.org/html/rfc8484 6
+	base64Encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuf)
+	_, err = bytes.NewBuffer(wireMsg).WriteTo(base64Encoder)
+	if err != nil {
+		return nil, fmt.Errorf("wireMsg WriteTo base64Encoder: %w", err)
+	}
+
+	payload := string(wireMsg)
+	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doFasthttp(urlBuf.Bytes(), requestLogger) })
+	c.group.Forget(payload)
 	if shared {
 		requestLogger.Debug("Exchange: shared payload")
 	}
-	c.group.Forget(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("group.Do doFasthttp: %w", err)
 	}
 	r, ok := vr.(*dns.Msg)
 	if ok {
@@ -140,23 +159,7 @@ func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 		r.Id = q.Id
 		return r, nil
 	}
-	return nil, nil
-}
-
-func (c *DoHClient) doWithPayload(payload []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
-	urlBuf := bytesBufPool.Get().(*bytes.Buffer)
-	defer bytesBufPool.Put(urlBuf)
-	urlBuf.Reset()
-	urlBuf.Grow(len(c.preparedURL) + len(payload))
-	urlBuf.Write(c.preparedURL)
-	urlBuf.Write(payload)
-
-	r, err := c.doFasthttp(urlBuf.Bytes(), requestLogger)
-	if err != nil {
-		return nil, fmt.Errorf("doFasthttp: %w", err)
-	}
-
-	return r, nil
+	return nil, errors.New("unexpected nil result")
 }
 
 func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
@@ -173,7 +176,7 @@ func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) (*dns.Ms
 
 	// no needs to call DoTimeout, we already set the io timeout
 	if err := c.fasthttpClient.Do(req, resp); err != nil {
-		return nil, fmt.Errorf("DoTimeout: %w", err)
+		return nil, fmt.Errorf("Do: %w", err)
 	}
 
 	statusCode := resp.StatusCode()

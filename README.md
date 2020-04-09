@@ -1,14 +1,15 @@
 # mos-chinadns
 
-支持DoH，IPv6，[EDNS Client Subnet](https://tools.ietf.org/html/rfc7871)，根据域名和IP的分流。内置[APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)大陆IP表和[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)大陆域名表。
+支持DoH，IPv6，EDNS Client Subnet(ECS)，根据域名和IP的分流。release附带大陆IP和域名表，配置简单，开箱即用。
 
 ---
 
 - [mos-chinadns](#mos-chinadns)
   - [命令帮助](#命令帮助)
-  - [三分钟快速上手 & 预设配置](#三分钟快速上手--预设配置)
-  - [更新中国大陆IP与域名列表](#更新中国大陆ip与域名列表)
+  - [三分钟快速上手](#三分钟快速上手)
+  - [更新大陆IP与域名列表](#更新大陆ip与域名列表)
   - [分流效果](#分流效果)
+  - [和dnsmasq一起使用](#和dnsmasq一起使用)
   - [其他细节](#其他细节)
   - [json配置文件](#json配置文件)
   - [Open Source Components / Libraries / Reference](#open-source-components--libraries--reference)
@@ -16,6 +17,7 @@
 ## 命令帮助
 
     -c string   [路径]json配置文件路径
+
     -dir string [路径]变更程序的工作目录
     -dir2exe    变更程序的工作目录至可执行文件的目录
 
@@ -26,21 +28,17 @@
     -no-udp     不监听udp，只监听tcp
     -cpu        使用CPU核数 
 
-## 三分钟快速上手 & 预设配置
+## 三分钟快速上手
 
 在这里下载最新版本：[release](https://github.com/IrineSistiana/mos-chinadns/releases)
 
-中国大陆IP表`chn.list`和域名表`chn_domain.list`已包含在release的zip包中。
+大陆IP表`chn.list`和域名表`chn_domain.list`已包含在release的zip包中。
 
-将预设配置复制并保存至`config.json`，确保`chn.list`，`chn_domain.list`，`config.json`和`mos-chinadns`在同一目录。
+从以下预设配置选择一个适合自己的(如果不清楚，用预设配置1)，复制并保存至`config.json`，确保`chn.list`，`chn_domain.list`，`config.json`和`mos-chinadns`在同一目录。
 
-用以下命令启动
+<details><summary><code>预设配置1 通用 按大陆IP与域名分流 国际域名使用DoH解析</code></summary><br>
 
-    mos-chinadns -c config.json -dir2exe
-
-<details><summary><code>预设配置1 通用 按大陆IP与域名分流 `remote_server`使用DoH</code></summary><br>
-
-使用中国大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)解析。
+使用大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)解析。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -55,7 +53,7 @@
 
 <details><summary><code>预设配置2 通用 按大陆IP与域名分流</code></summary><br>
 
-使用中国大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用`OpenDNS`解析。
+使用大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用`OpenDNS`解析。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -67,9 +65,9 @@
 
 </details>
 
-<details><summary><code>预设配置3 DoH转发模式</code></summary><br>
+<details><summary><code>预设配置3 DoH客户端</code></summary><br>
 
-使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。
+使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。将mos-chinadns作为简单的DoH客户端。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -79,15 +77,19 @@
 
 </details>
 
-`mos-chinadns`的使用场景很丰富，以上配置示例能满足绝大多数需求。如需DIY配置请参阅：[完整的json配置文件与说明](#json配置文件)
+用以下命令启动
 
-## 更新中国大陆IP与域名列表
+    mos-chinadns -c config.json -dir2exe
 
-`scripts\update_chn_ip_domain.py`能自动下载数据并生成中国大陆IP与域名列表`chn.list`，`chn_domain.list`到当前目录。需要`python3`，依赖`netaddr`和`requests`。    
+## 更新大陆IP与域名列表
+
+`scripts\update_chn_ip_domain.py`能自动下载数据并生成大陆IP与域名列表`chn.list`，`chn_domain.list`到当前目录。
+
+该脚本需要`python3`，依赖`netaddr`和`requests`。    
 
 ## 分流效果
 
-国内域名交由`local_server`解析，无格外延时。国外域名将会由`remote_server`解析，确保无污染。
+国内域名直接交由`local_server`解析，无格外延时，不会解析到国外。国际域名将会由`remote_server`解析，确保无污染。
 
 <details><summary><code>dig www.baidu.com 演示</code></summary><br>
 
@@ -146,11 +148,17 @@
 
 </details>
 
+## 和dnsmasq一起使用
+
+mos-chinadns无缓存功能，dnsmasq可以用于缓存mos-chinadns的结果。
+
+使用dnsmasq配合[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)分流的方式很流行，但dnsmasq毕竟不是专为分流设计，其匹配域名的方式是逐一匹配，用时随列表长度线性增长。mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)中所有域名。不同的是，mos-chinadns采用hash算法匹配域名，处理[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)包含的7万多条记录所需时间远远(几个数量级)小于dnsmasq。所以建议用mos-chinadns分流域名。
+
 ## 其他细节
 
-**域名分流使用dnsmasq还是mos-chinadns**
+**设计思路**
 
-mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list)中所有域名。同时mos-chinadns采用hash算法匹配域名，所需时间远远(几个数量级)小于dnsmasq。建议将域名分流的任务交给mos-chinadns。
+mos-chinadns的出发点是实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DNS加密) + dnsmasq + dnsmasq-china-list(域名分流)`的效果。整合常用的功能，同时优化性能。
 
 **DNS-over-HTTPS (DoH)**
 
@@ -158,28 +166,21 @@ mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.
 
 默认使用系统证书池验证DoH服务器身份。如无法读取系统证书池或服务器为自签发证书，需通过`*_server_pem_ca`参数提供的CA证书。
 
-**关于文件路径**
-
-建议使用`-dir2exe`选项将工作目录设置为程序所在目录，这样的话配置文件`-c`路径和配置文件中的路径可以是相对于程序的相对路径。
-
-如果附加`-dir2exe`后程序启动报错那就只能启动程序前手动`cd`或者使用绝对路径。
-
 **请求流程与local_server黑白名单**
 
-1. 如果指定了域名白名单->匹配域名->白名单中的域名将被仅发往`local_server`解析
-2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被仅发往`remote_server`解析
+1. 如果指定了域名白名单->匹配域名->白名单中的域名将被仅发往`local_server`解析->接受返回结果->END
+2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被仅发往`remote_server`解析->接受返回结果->END
 3. 发送至`local_server`与`remote_server`解析
-4. 如果请求仅由`local_server`解析->无条件接受返回结果->END
-5. 如果由`remote_server`与`local_server`同时解析->`local_server`返回的空结果会被丢弃
-6. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果
-7. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果
-8. 接受结果->END
+   1. `local_server`返回的空结果会被丢弃
+   2. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果
+   3. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果
+   4. 接受最先返回结果->END
 
-`local_server`的结果会根据设置进行过滤，`remote_server`的结果一定会被接受。
-
+简单的说：`local_server`的结果会根据设置进行过滤，`remote_server`的结果一定会被接受。
+ 
 **域名黑/白名单格式**
 
-采用按域向前匹配的方式，与dnsmasq匹配方式类似。每个表达式一行。
+采用按域向前匹配的方式。每个表达式一行。
 
 规则示例：
 
@@ -209,47 +210,57 @@ mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.
         // [IP:端口][必需] 监听地址。
         "bind_addr": "127.0.0.1:53", 
 
-        // [IP:端口] `local_server`地址 建议:一个低延时但会被污染大陆服务器，用于解析大陆域名。
+        // [IP:端口] `local_server`地址
+        // 建议:一个低延时但会被污染的服务器，用于解析大陆域名。
         "local_server": "223.5.5.5:53",    
 
         // [URL] DoH服务器的url，如果填入，`local_server`将使用DoH协议
         "local_server_url": "https://223.5.5.5/dns-query",
 
-        // [path] 用于验证`local_server`的PEM格式CA证书的路径。默认使用系统证书池。
-        "local_server_pem_ca": "",
+        // [path] 用于验证`local_server`的PEM格式CA证书的路径。
+        // 默认使用系统证书池。
+        "local_server_pem_ca": "/path/to/your/CA/cert",
 
         // [bool] `local_server`是否屏蔽非A或AAAA请求。
         "local_server_block_unusual_type": false,
 
-        // [IP:端口] `remote_server`地址 建议:一个无污染的服务器。用于解析非大陆域名。   
+        // [IP:端口] `remote_server`地址
+        // 建议:一个无污染的服务器。用于解析国际域名。   
         "remote_server": "8.8.8.8:443", 
 
         // [URL] DoH服务器的url，如果填入，`remote_server`将使用DoH协议。
         "remote_server_url": "https://dns.google/dns-query",  
 
-        // [path] 用于验证`remote_server`的PEM格式CA证书的路径。默认使用系统证书池。
-        "remote_server_pem_ca": "", 
+        // [path] 用于验证`remote_server`的PEM格式CA证书的路径。
+        // 默认使用系统证书池。
+        "remote_server_pem_ca": "/path/to/your/CA/cert", 
 
         // [int] 单位毫秒 `remote_server`延时启动时间。
-        // 如果在设定时间(单位毫秒)后`local_server`无响应或失败，则开始请求`remote_server`。
+        // 如果在设定时间后`local_server`无响应或失败或结果被丢弃，则开始请求`remote_server`。
         // 如果`local_server`延时较低，将该值设定为120%的`local_server`的延时可显著降低请求`remote_server`的次数。
         // 该选项主要用于缓解低运算力设备的压力。
         // 0表示禁用延时，请求将同时发送。
         "remote_server_delay_start": 0, 
 
-        // [路径] `local_server`IP白名单 建议:中国大陆IP列表，用于区别大陆与非大陆结果。
+        // [路径] `local_server`IP白名单
+        // 建议:大陆IP列表，用于IP分流。
         "local_allowed_ip_list": "/path/to/your/chn/ip/list", 
 
-        // [路径] `local_server`IP黑名单 建议:希望被屏蔽的IP列表，比如运营商的广告服务器IP。
+        // [路径] `local_server`IP黑名单
+        // 建议:希望被屏蔽的IP列表，比如运营商的广告服务器IP。
         "local_blocked_ip_list": "/path/to/your/black/ip/list",
         
-        // [路径] 强制使用`local_server`解析的域名名单 建议:中国的域名。
+        // [路径] 强制使用`local_server`解析的域名名单
+        // 建议:大陆域名。
         "local_forced_domain_list": "/path/to/your/domain/list",
 
-        // [路径] `local_server`域名黑名单 建议:希望强制打开国外版而非中国版的域名。
+        // [路径] `local_server`域名黑名单
+        // 建议:希望强制打开国际版而非国内版的域名。
         "local_blocked_domain_list": "/path/to/your/domain/list",
 
-        // [CIDR] EDNS Client Subnet。填入自己的IP段即可启用ECS。如不详请务必留空。 
+        // [CIDR] EDNS Client Subnet。
+        // 填入自己的IP段即可启用ECS。 
+        // 默认ECS不启用。
         "local_ecs_subnet": "1.2.3.0/24",
         "remote_ecs_subnet": "1.2.3.0/24"
     }
@@ -268,5 +279,5 @@ mos-chinadns自带的`chn_domain.list`包含[dnsmasq-china-list](https://github.
 
 资源
 
-* `chn_domain.list`数据来自: [dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list):                   [LICENSE](https://github.com/felixonmars/dnsmasq-china-list/blob/master/LICENSE)
+* `chn_domain.list`数据来自: [dnsmasq-china-list](https://github.com/felixonmars/dnsmasq-china-list): [LICENSE](https://github.com/felixonmars/dnsmasq-china-list/blob/master/LICENSE)
 * `chn.list`数据来自: [APNIC](https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest)
