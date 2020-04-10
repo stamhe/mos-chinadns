@@ -31,14 +31,21 @@ import (
 //注意：这个test不正规，而且永远会pass。手动debug用。
 func Test_dohClient(t *testing.T) {
 	requestLogger := logrus.NewEntry(logrus.StandardLogger())
+	logrus.StandardLogger().SetLevel(logrus.DebugLevel)
 	c := NewClient("https://223.5.5.5/dns-query", "223.5.5.5:443", nil, dns.MaxMsgSize, time.Second*3)
 	q := new(dns.Msg)
-	q.SetQuestion(dns.Fqdn("www.baidu.com"), dns.TypeAAAA)
+	q.SetQuestion("www.baidu.com.", dns.TypeA)
 
 	start := time.Now()
-	println("query 0")
-	c.Exchange(q, requestLogger)
-	println("query 0: " + time.Since(start).String())
+	fmt.Printf("First query\n")
+	r, err := c.Exchange(q, requestLogger)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Printf("%s\n", r)
+	fmt.Printf("query 0: %s\n", time.Since(start))
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
@@ -49,7 +56,7 @@ func Test_dohClient(t *testing.T) {
 			start := time.Now()
 			_, err := c.Exchange(q, requestLogger)
 			if err != nil {
-				t.Log(err)
+				fmt.Println(err)
 				return
 			}
 			fmt.Printf("query %d: %s\n", n, time.Since(start))

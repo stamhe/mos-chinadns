@@ -36,6 +36,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// err
+var (
+	ErrNoResult = errors.New("unexpected nil result")
+)
+
 type DoHClient struct {
 	preparedURL []byte
 
@@ -68,7 +73,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 		fasthttpClient: &fasthttp.HostClient{
 			Addr: host,
 			Dial: func(_ string) (net.Conn, error) {
-				return net.Dial("tcp", addr)
+				d := net.Dialer{Timeout: timeout}
+				return d.Dial("tcp", addr)
 			},
 			IsTLS:                         true,
 			TLSConfig:                     tlsConfig,
@@ -93,11 +99,6 @@ var (
 var packBufPool512 = &sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 512)
-	}}
-
-var base64BufPool682 = &sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 682)
 	}}
 
 var bytesBufPool = sync.Pool{
@@ -129,23 +130,8 @@ func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 		return nil, fmt.Errorf("PackBuffer: %w", err)
 	}
 
-	base64Len := base64.RawURLEncoding.EncodedLen(len(wireMsg))
-	urlBuf := bytesBufPool.Get().(*bytes.Buffer)
-	defer bytesBufPool.Put(urlBuf)
-	urlBuf.Grow(len(c.preparedURL) + base64Len)
-	urlBuf.Reset()
-	urlBuf.Write(c.preparedURL)
-
-	// Padding characters for base64url MUST NOT be included.
-	// See: https://tools.ietf.org/html/rfc8484 6
-	base64Encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuf)
-	_, err = bytes.NewBuffer(wireMsg).WriteTo(base64Encoder)
-	if err != nil {
-		return nil, fmt.Errorf("wireMsg WriteTo base64Encoder: %w", err)
-	}
-
 	payload := string(wireMsg)
-	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doFasthttp(urlBuf.Bytes(), requestLogger) })
+	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doFasthttp(wireMsg, requestLogger) })
 	c.group.Forget(payload)
 	if shared {
 		requestLogger.Debug("Exchange: shared payload")
@@ -159,18 +145,30 @@ func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 		r.Id = q.Id
 		return r, nil
 	}
-	return nil, errors.New("unexpected nil result")
+	return nil, ErrNoResult
 }
 
-func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
+func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
+
+	urlBuf := bytesBufPool.Get().(*bytes.Buffer)
+	defer bytesBufPool.Put(urlBuf)
+	urlBuf.Grow(len(c.preparedURL) + base64.RawURLEncoding.EncodedLen(len(wireMsg)))
+	urlBuf.Reset()
+	urlBuf.Write(c.preparedURL)
+
+	// Padding characters for base64url MUST NOT be included.
+	// See: https://tools.ietf.org/html/rfc8484 6
+	encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuf)
+	encoder.Write(wireMsg)
+	encoder.Close()
+
 	//Note: It is forbidden copying Request instances. Create new instances and use CopyTo instead.
 	//Request instance MUST NOT be used from concurrently running goroutines.
 	req := fasthttp.AcquireRequest()
 	defer fasthttp.ReleaseRequest(req)
-	req.SetRequestURIBytes(url)
+	req.SetRequestURIBytes(urlBuf.Bytes())
 	req.Header.SetMethodBytes(strGet)
 	req.Header.SetCanonical(headerCanonicalKeyAccept, headerValueMediaType)
-
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
