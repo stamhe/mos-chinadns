@@ -36,7 +36,7 @@ func LoadFormReader(r io.Reader) (*List, error) {
 		if _, ok := dns.IsDomainName(fqdn); !ok {
 			return nil, fmt.Errorf("invaild domain [%s]", line)
 		}
-		l.Add(line)
+		l.Add(fqdn)
 
 	}
 
