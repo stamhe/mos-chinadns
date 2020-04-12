@@ -54,6 +54,7 @@ type dispatcher struct {
 	localAllowedIPList     *netlist.List
 	localBlockedIPList     *netlist.List
 	localAllowedDomainList *domainlist.List
+	localFDLIsWhitelist    bool
 	localBlockedDomainList *domainlist.List
 	localECS               *dns.EDNS0_SUBNET
 	remoteECS              *dns.EDNS0_SUBNET
@@ -190,6 +191,8 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		}
 		d.entry.Infof("initDispather: LocalForcedDomainList length %d", dl.Len())
 		d.localAllowedDomainList = dl
+
+		d.localFDLIsWhitelist = conf.LocalFDLIsWhitelist
 	}
 
 	if len(conf.LocalBlockedDomainList) != 0 {
@@ -299,11 +302,8 @@ func isUnusualType(q *dns.Msg) bool {
 	return q.Opcode != dns.OpcodeQuery || len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET || (q.Question[0].Qtype != dns.TypeA && q.Question[0].Qtype != dns.TypeAAAA)
 }
 
-// check if q has a blocked QName. If q and reList is nil, return false.
+// check if q has a blocked QName. q and l can't be nil.
 func inDomainList(q *dns.Msg, l *domainlist.List) bool {
-	if l == nil || q == nil {
-		return false
-	}
 	for i := range q.Question {
 		if l.Has(q.Question[i].Name) {
 			return true
@@ -320,20 +320,29 @@ func (d *dispatcher) hasLocal() bool {
 	return d.localClient != nil || d.localDoHClient != nil
 }
 
-// serveDNS: r might be nil
+// serveDNS: q can't be nil, r might be nil
 func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	requestLogger := d.entry.WithFields(logrus.Fields{
 		"id":       q.Id,
 		"question": q.Question,
 	})
 
-	localOnly := inDomainList(q, d.localAllowedDomainList)
-	if localOnly {
-		requestLogger.Debug("serveDNS: is forced domain")
+	var localOnly, localBlocked bool
+	if d.localAllowedDomainList != nil {
+		if inDomainList(q, d.localAllowedDomainList) {
+			localOnly = true
+			requestLogger.Debug("serveDNS: is local domain")
+		} else {
+			if d.localFDLIsWhitelist {
+				localBlocked = true
+				requestLogger.Debug("serveDNS: block non local domain")
+			}
+		}
 	}
-	localBlocked := inDomainList(q, d.localBlockedDomainList)
-	if localBlocked {
-		requestLogger.Debug("serveDNS: is blocked domain")
+
+	if d.localBlockedDomainList != nil && !localBlocked && inDomainList(q, d.localBlockedDomainList) {
+		localBlocked = true
+		requestLogger.Debug("serveDNS: local: is blocked domain")
 	}
 
 	var doLocal, doRemote bool
@@ -575,7 +584,7 @@ func anwsersMatchNetList(anwser []dns.RR, list *netlist.List, requestLogger *log
 		}
 	}
 	if !matched {
-		requestLogger.Debug("anwsersMatchNetList: answer section has no A or AAAA record")
+		requestLogger.Debug("anwsersMatchNetList: no A/4A record")
 	}
 	return false
 }

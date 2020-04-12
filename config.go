@@ -39,6 +39,7 @@ type Config struct {
 	LocalAllowedIPList     string `json:"local_allowed_ip_list"`
 	LocalBlockedIPList     string `json:"local_blocked_ip_list"`
 	LocalForcedDomainList  string `json:"local_forced_domain_list"`
+	LocalFDLIsWhitelist    bool   `json:"local_fdl_is_whitelist"`
 	LocalBlockedDomainList string `json:"local_blocked_domain_list"`
 	LocalECSSubnet         string `json:"local_ecs_subnet"`
 	RemoteECSSubnet        string `json:"remote_ecs_subnet"`
