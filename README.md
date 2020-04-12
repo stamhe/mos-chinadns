@@ -6,7 +6,7 @@
   * [DoH性能可能是dnscrypt的10倍](https://github.com/valyala/fasthttp#http-client-comparison-with-nethttp)
   * [域名分流性能可能是dnsmasq的千倍](#和dnsmasq一起使用)
   * 可显著降低路由类设备的负载与延时
-* release附带[大陆IP和域名表](#open-source-components--libraries--reference)，开箱即用。
+* release已附带大陆IP和域名表，开箱即用。
 
 ---
 
@@ -28,24 +28,24 @@
 
 从以下预设配置选择一个适合自己的(如果不清楚，用预设配置1)，复制并保存至`config.json`，确保`chn.list`，`chn_domain.list`，`config.json`和`mos-chinadns`在同一目录。
 
-<details><summary><code>预设配置1 通用 按大陆IP与域名分流 国际域名使用DoH解析</code></summary><br>
+<details><summary><code>预设配置1 分流 使用DoH</code></summary><br>
 
-使用大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)解析。
+国内域名使用阿里云DNS，国际域名使用Cloudflare DoH。
 
     {
         "bind_addr": "127.0.0.1:53",
         "local_server": "223.5.5.5:53",
-        "remote_server": "8.8.8.8:443",
-        "remote_server_url": "https://dns.google/dns-query",
+        "remote_server": "1.1.1.1:443",
+        "remote_server_url": "https://1.1.1.1/dns-query",
         "local_allowed_ip_list": "./chn.list",
         "local_forced_domain_list": "./chn_domain.list"
     }
 
 </details>
 
-<details><summary><code>预设配置2 通用 按大陆IP与域名分流</code></summary><br>
+<details><summary><code>预设配置2 分流</code></summary><br>
 
-使用大陆IP表`chn.list`和域名表`chn_domain.list`分流。国内域名使用`阿里云DNS`解析，国际域名使用`OpenDNS`解析。
+国内域名使用阿里云DNS，国际域名使用OpenDNS。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -170,11 +170,11 @@ mos-chinadns无缓存功能，dnsmasq可以用于缓存mos-chinadns的结果。
 
 **请求流程与local_server黑/白/强制名单**
 
-1. 如果指定了域名强制->匹配域名->
-   1. 强制名单中的域名将被仅发往`local_server`解析->接受返回结果->END
-   2. 如果设定了`local_fdl_is_whitelist`->非强制名单中的域名将被仅发往`remote_server`解析->接受返回结果->END
-2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被仅发往`remote_server`解析->接受返回结果->END
-3. 发送至`local_server`与`remote_server`解析->
+1. 如果指定了域名强制名单->匹配域名->
+   1. 强制名单中的域名将发往`local_server`解析->接受返回结果->END
+   2. 如果设定了`local_fdl_is_whitelist`->非强制名单中的域名将发往`remote_server`解析->接受返回结果->END
+2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将发往`remote_server`解析->接受返回结果->END
+3. 同时发送至`local_server`与`remote_server`解析->
    1. `local_server`返回的空结果会被丢弃
    2. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果
    3. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果
@@ -216,29 +216,32 @@ mos-chinadns无缓存功能，dnsmasq可以用于缓存mos-chinadns的结果。
         // 建议:一个低延时但会被污染的服务器，用于解析大陆域名。
         "local_server": "223.5.5.5:53",    
 
-        // [URL] DoH服务器的url，如果填入，`local_server`将使用DoH协议
+        // [URL] DoH服务器的url
+        // 如果填入，`local_server`将使用DoH协议
         "local_server_url": "https://223.5.5.5/dns-query",
 
         // [path] 用于验证`local_server`的PEM格式CA证书的路径。
         // 默认使用系统证书池。
         "local_server_pem_ca": "/path/to/your/CA/cert",
 
-        // [bool] `local_server`是否屏蔽非A或AAAA请求。
+        // [bool] `local_server`是否屏蔽非A或AAAA等不常见请求类型。
         "local_server_block_unusual_type": false,
 
         // [IP:端口] `remote_server`地址
         // 建议:一个无污染的服务器。用于解析国际域名。   
         "remote_server": "8.8.8.8:443", 
 
-        // [URL] DoH服务器的url，如果填入，`remote_server`将使用DoH协议。
+        // [URL] DoH服务器的url
+        // 如果填入，`remote_server`将使用DoH协议。
         "remote_server_url": "https://dns.google/dns-query",  
 
         // [path] 用于验证`remote_server`的PEM格式CA证书的路径。
         // 默认使用系统证书池。
         "remote_server_pem_ca": "/path/to/your/CA/cert", 
 
-        // [int] 单位毫秒 `remote_server`延时启动时间。
-        // 如果在设定时间后`local_server`无响应或失败或结果被丢弃，则开始请求`remote_server`。
+        // [int] `remote_server`延时启动时间 单位:毫秒 
+        // 如果在设定时间后`local_server`无响应，则开始请求`remote_server`。
+        // `local_server`失败或结果被丢弃时，会中止等待立即开始请求`remote_server`。
         // 如果`local_server`延时较低，将该值设定为120%的`local_server`的延时可显著降低请求`remote_server`的次数。
         // 该选项主要用于缓解低运算力设备的压力。
         // 0表示禁用延时，请求将同时发送。
@@ -249,27 +252,29 @@ mos-chinadns无缓存功能，dnsmasq可以用于缓存mos-chinadns的结果。
         "local_allowed_ip_list": "/path/to/your/chn/ip/list", 
 
         // [路径] `local_server`IP黑名单
+        // 如果`local_server`返回黑名单中的IP，结果会被丢弃。
         // 建议:希望被屏蔽的IP列表，比如运营商的广告服务器IP。
         "local_blocked_ip_list": "/path/to/your/black/ip/list",
         
         // [路径] 强制使用`local_server`解析的域名名单
+        // 这些域名只会被`local_server`解析。
         // 建议:大陆域名。
         "local_forced_domain_list": "/path/to/your/domain/list",
 
         // "local_forced_domain_list"是否是白名单
         // 如果true，不在其中的域名不会送至`local_server`解析。
-        // 该选项建议用于对`local_server`屏蔽所有国外域名请求，保护隐私。
+        // 可对`local_server`屏蔽所有非国内域名请求，保护隐私。
         "local_fdl_is_whitelist": false,
 
         // [路径] `local_server`域名黑名单
+        // 这些域名不会被`local_server`解析。
         // 建议:希望强制打开国际版而非国内版的域名。
         "local_blocked_domain_list": "/path/to/your/domain/list",
 
-        // [CIDR] EDNS Client Subnet。
-        // 填入自己的IP段即可启用ECS。 
-        // 默认ECS不启用。
+        // [CIDR] EDNS Client Subnet
+        // 如果填入，如果下游请求未包含ECS，发出至`local/remote_server`的请求会附带上此IP段。
         "local_ecs_subnet": "1.2.3.0/24",
-        "remote_ecs_subnet": "1.2.3.0/24"
+        "remote_ecs_subnet": "3.2.1.0/24"       
     }
 
 ## Open Source Components / Libraries / Reference
