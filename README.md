@@ -1,32 +1,24 @@
 # mos-chinadns
 
-支持DoH，IPv6，EDNS Client Subnet(ECS)，根据域名和IP的分流。release附带大陆IP和域名表，配置简单，开箱即用。
+* 支持DoH，IPv6，EDNS Client Subnet(ECS)，根据域名和IP的分流。
+* 可一步实现传统分流方案 `ChinaDNS(IP分流) + dnscrypt(DoH) + dnsmasq-china-list + dnsmasq(域名分流)`的效果。
+* 有更高的性能。
+  * [DoH性能可能是dnscrypt的10倍](https://github.com/valyala/fasthttp#http-client-comparison-with-nethttp)
+  * [域名分流性能可能是dnsmasq的千倍](#和dnsmasq一起使用)
+  * 可显著降低路由类设备的负载与延时
+* release附带[大陆IP和域名表](#open-source-components--libraries--reference)，开箱即用。
 
 ---
 
 - [mos-chinadns](#mos-chinadns)
-  - [命令帮助](#命令帮助)
   - [三分钟快速上手](#三分钟快速上手)
-  - [更新大陆IP与域名列表](#更新大陆ip与域名列表)
+  - [命令帮助](#命令帮助)
+  - [更新大陆ip与域名表](#更新大陆ip与域名表)
   - [分流效果](#分流效果)
   - [和dnsmasq一起使用](#和dnsmasq一起使用)
   - [其他细节](#其他细节)
-  - [json配置文件](#json配置文件)
+  - [配置文件](#配置文件)
   - [Open Source Components / Libraries / Reference](#open-source-components--libraries--reference)
-
-## 命令帮助
-
-    -c string   [路径]json配置文件路径
-
-    -dir string [路径]变更程序的工作目录
-    -dir2exe    变更程序的工作目录至可执行文件的目录
-
-    -gen string [路径]生成一个json配置文件模板至该路径
-    -v          调试模式，更多的log输出
-    -q          安静模式，无log
-    -no-tcp     不监听tcp，只监听udp
-    -no-udp     不监听udp，只监听tcp
-    -cpu        使用CPU核数 
 
 ## 三分钟快速上手
 
@@ -67,7 +59,7 @@
 
 <details><summary><code>预设配置3 DoH客户端</code></summary><br>
 
-使用[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)作为上游服务器。无分流。将mos-chinadns作为简单的DoH客户端。
+无分流。将mos-chinadns作为简单的DoH客户端。
 
     {
         "bind_addr": "127.0.0.1:53",
@@ -81,11 +73,27 @@
 
     mos-chinadns -c config.json -dir2exe
 
-## 更新大陆IP与域名列表
+## 命令帮助
+
+    -c string   [路径]配置文件路径
+
+    -dir string [路径]变更程序的工作目录
+    -dir2exe    变更程序的工作目录至可执行文件的目录
+
+    -gen string [路径]生成一个配置文件模板至该路径
+    -v          调试模式，更多的log输出
+    -q          安静模式，无log
+    -no-tcp     不监听tcp，只监听udp
+    -no-udp     不监听udp，只监听tcp
+    -cpu        使用CPU核数
+
+## 更新大陆ip与域名表
 
 `scripts\update_chn_ip_domain.py`能自动下载数据并生成大陆IP与域名列表`chn.list`，`chn_domain.list`到当前目录。
 
 该脚本需要`python3`，依赖`netaddr`和`requests`。    
+
+建议每两周更新一次。
 
 ## 分流效果
 
@@ -156,21 +164,17 @@ mos-chinadns无缓存功能，dnsmasq可以用于缓存mos-chinadns的结果。
 
 ## 其他细节
 
-**设计思路**
-
-mos-chinadns的出发点是实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DNS加密) + dnsmasq + dnsmasq-china-list(域名分流)`的效果。整合常用的功能，同时优化性能。
-
 **DNS-over-HTTPS (DoH)**
 
 请求方式为[RFC 8484](https://tools.ietf.org/html/rfc8484) GET。
 
-默认使用系统证书池验证DoH服务器身份。如无法读取系统证书池或服务器为自签发证书，需通过`*_server_pem_ca`参数提供的CA证书。
+**请求流程与local_server黑/白/强制名单**
 
-**请求流程与local_server黑白名单**
-
-1. 如果指定了域名白名单->匹配域名->白名单中的域名将被仅发往`local_server`解析->接受返回结果->END
+1. 如果指定了域名强制->匹配域名->
+   1. 强制名单中的域名将被仅发往`local_server`解析->接受返回结果->END
+   2. 如果设定了`local_fdl_is_whitelist`->非强制名单中的域名将被仅发往`remote_server`解析->接受返回结果->END
 2. 如果指定了域名黑名单->匹配域名->黑名单中的域名将被仅发往`remote_server`解析->接受返回结果->END
-3. 发送至`local_server`与`remote_server`解析
+3. 发送至`local_server`与`remote_server`解析->
    1. `local_server`返回的空结果会被丢弃
    2. 如果指定了IP黑名单->匹配`local_server`返回的IP->丢弃黑名单中的结果
    3. 如果指定了IP白名单->匹配`local_server`返回的IP->丢弃不在白名单的结果
@@ -180,12 +184,10 @@ mos-chinadns的出发点是实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DNS
  
 **域名黑/白名单格式**
 
-采用按域向前匹配的方式。每个表达式一行。
+采用按域向前匹配的方式。每个表达式一行。规则示例：
 
-规则示例：
-
-* `cn`相当于`*.cn`。会匹配所有以cn结尾的域名，`example.cn`，`www.google.cn`
-* `google.com`相当于`*.google.com`。会匹配`www.google.com`, `www.l.google.com`，但不会匹配`www.google.cn`。
+* `cn`会匹配所有以`.cn`结尾的域名和`cn`本身: `example.cn`，`www.google.cn`
+* `google.com`会匹配所有以`.google.com`结尾的域名和`google.com`本身: `www.google.com`, `www.l.google.com`
 
 比如：
 
@@ -204,7 +206,7 @@ mos-chinadns的出发点是实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DNS
     2.2.2.2
     2001:ccd:1a
 
-## json配置文件
+## 配置文件
 
     {
         // [IP:端口][必需] 监听地址。
@@ -253,6 +255,11 @@ mos-chinadns的出发点是实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DNS
         // [路径] 强制使用`local_server`解析的域名名单
         // 建议:大陆域名。
         "local_forced_domain_list": "/path/to/your/domain/list",
+
+        // "local_forced_domain_list"是否是白名单
+        // 如果true，不在其中的域名不会送至`local_server`解析。
+        // 该选项建议用于对`local_server`屏蔽所有国外域名请求，保护隐私。
+        "local_fdl_is_whitelist": false,
 
         // [路径] `local_server`域名黑名单
         // 建议:希望强制打开国际版而非国内版的域名。
