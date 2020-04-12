@@ -524,40 +524,44 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) {
 // check if local result should be droped, res can be nil.
 func (d *dispatcher) dropLoaclRes(res *dns.Msg, requestLogger *logrus.Entry) bool {
 	if res == nil {
-		requestLogger.Debug("dropLoaclRes: result is nil")
+		requestLogger.Debug("dropLoaclRes: true: result is nil")
 		return true
 	}
 
 	if res.Rcode != dns.RcodeSuccess {
-		requestLogger.Debugf("dropLoaclRes: result Rcode is %s", dns.RcodeToString[res.Rcode])
+		requestLogger.Debugf("dropLoaclRes: true: Rcode=%s", dns.RcodeToString[res.Rcode])
 		return true
 	}
 
 	if len(res.Answer) == 0 {
-		requestLogger.Debug("dropLoaclRes: result has empty answer")
+		requestLogger.Debug("dropLoaclRes: true: empty answer")
 		return true
 	}
 
-	if d.localServerBlockUnusualType && isUnusualType(res) {
-		requestLogger.Debug("dropLoaclRes: result is an unusual type")
-		return false
-	}
-
-	if d.localBlockedIPList != nil && anwsersMatchNetList(res.Answer, d.localBlockedIPList, requestLogger) {
-		requestLogger.Debug("dropLoaclRes: result IP is blocked")
+	isUT := isUnusualType(res)
+	if d.localServerBlockUnusualType && isUT {
+		requestLogger.Debug("dropLoaclRes: true: unusual type")
 		return true
 	}
 
-	if d.localAllowedIPList != nil {
-		if anwsersMatchNetList(res.Answer, d.localAllowedIPList, requestLogger) {
-			requestLogger.Debug("dropLoaclRes: result IP is allowed")
-			return false
+	if !isUT { // A and AAAA has IP
+		if d.localBlockedIPList != nil && anwsersMatchNetList(res.Answer, d.localBlockedIPList, requestLogger) {
+			requestLogger.Debug("dropLoaclRes: true: IP in blacklist")
+			return true
 		}
-		requestLogger.Debug("dropLoaclRes: result IP is not allowed")
-		return true
+
+		if d.localAllowedIPList != nil {
+			if anwsersMatchNetList(res.Answer, d.localAllowedIPList, requestLogger) {
+				requestLogger.Debug("dropLoaclRes: false: IP in whitelist")
+				return false
+			}
+			requestLogger.Debug("dropLoaclRes: true: IP not in whitelist")
+			return true
+		}
 	}
 
 	// no b/w list, don't drop
+	requestLogger.Debug("dropLoaclRes: false: unusual type")
 	return false
 }
 
