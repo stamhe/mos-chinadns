@@ -1,17 +1,18 @@
 # mos-chinadns
 
-* 支持DoH，IPv6，EDNS Client Subnet(ECS)，根据域名和IP的分流
-* 可一步实现传统方案 `ChinaDNS(IP分流) + dnscrypt(DoH) + dnsmasq-china-list + dnsmasq(域名分流)`的效果
-* 精准分流：
-  * 国内域名国内解析，不会解析到国外
-  * 国际域名国外解析，确保无污染
-* 有更高的性能：
+* 支持DoH，IPv6，EDNS Client Subnet(ECS)，按域名分流
+* 可一步实现传统方案 `ChinaDNS(IP分流) + dnsmasq-china-list + dnsmasq(域名分流) + dnscrypt(DoH)`的效果
+* 分流更准：
+  * 同时考虑IP和域名
+  * 国内域名国内服务器解析，确保低延时
+  * 国际域名国外服务器解析，确保无污染
+* 性能更高：
   * DoH性能可能是dnscrypt的10倍
   * 域名分流性能可能是dnsmasq的千倍
   * 显著降低低运算力设备(如路由)的负载与延时
 * 多平台，配置简单，开箱即用
 
-使用示例以及手册，详见：[wiki](https://github.com/IrineSistiana/mos-chinadns/wiki)。
+更多功能、使用教程以及手册，详见：[wiki](https://github.com/IrineSistiana/mos-chinadns/wiki)。
 
 ---
 
