@@ -130,6 +130,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		} else {
 			d.localClient = &dns.Client{
 				Timeout:        udpQueryTimeout,
+				UDPSize:        1480,
 				Net:            "udp",
 				SingleInflight: false,
 			}
@@ -157,6 +158,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			d.remoteClient = &dns.Client{
 				Timeout:        udpQueryTimeout,
 				Net:            "udp",
+				UDPSize:        1480,
 				SingleInflight: false,
 			}
 		}
