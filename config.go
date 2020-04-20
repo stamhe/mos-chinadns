@@ -27,13 +27,13 @@ import (
 type Config struct {
 	BindAddr                    string `json:"bind_addr"`
 	BindProtocol                string `json:"bind_protocol"`
-	LocalServerAddr             string `json:"local_server"`
+	LocalServerAddr             string `json:"local_server_addr"`
 	LocalServerProtocol         string `json:"local_server_protocol"`
 	LocalServerURL              string `json:"local_server_url"`
 	LocalServerPEMCA            string `json:"local_server_pem_ca"`
 	LocalServerBlockUnusualType bool   `json:"local_server_block_unusual_type"`
 
-	RemoteServerAddr       string `json:"remote_server"`
+	RemoteServerAddr       string `json:"remote_server_addr"`
 	RemoteServerProtocol   string `json:"remote_server_protocol"`
 	RemoteServerURL        string `json:"remote_server_url"`
 	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
