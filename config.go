@@ -26,12 +26,15 @@ import (
 // Config is config
 type Config struct {
 	BindAddr                    string `json:"bind_addr"`
-	LocalServer                 string `json:"local_server"`
+	BindProtocol                string `json:"bind_protocol"`
+	LocalServerAddr             string `json:"local_server_addr"`
+	LocalServerProtocol         string `json:"local_server_protocol"`
 	LocalServerURL              string `json:"local_server_url"`
 	LocalServerPEMCA            string `json:"local_server_pem_ca"`
 	LocalServerBlockUnusualType bool   `json:"local_server_block_unusual_type"`
 
-	RemoteServer           string `json:"remote_server"`
+	RemoteServerAddr       string `json:"remote_server_addr"`
+	RemoteServerProtocol   string `json:"remote_server_protocol"`
 	RemoteServerURL        string `json:"remote_server_url"`
 	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
 	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
@@ -41,8 +44,9 @@ type Config struct {
 	LocalForcedDomainList  string `json:"local_forced_domain_list"`
 	LocalFDLIsWhitelist    bool   `json:"local_fdl_is_whitelist"`
 	LocalBlockedDomainList string `json:"local_blocked_domain_list"`
-	LocalECSSubnet         string `json:"local_ecs_subnet"`
-	RemoteECSSubnet        string `json:"remote_ecs_subnet"`
+
+	LocalECSSubnet  string `json:"local_ecs_subnet"`
+	RemoteECSSubnet string `json:"remote_ecs_subnet"`
 }
 
 func loadJSONConfig(configFile string) (*Config, error) {

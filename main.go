@@ -38,9 +38,6 @@ var (
 	verbose = flag.Bool("v", false, "more log")
 	quite   = flag.Bool("q", false, "no log")
 
-	noUDP = flag.Bool("no-udp", false, "don't listen on udp socket")
-	noTCP = flag.Bool("no-tcp", false, "don't listen on tcp socket")
-
 	cpu = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 )
 
@@ -105,7 +102,7 @@ func main() {
 		entry.Fatalf("init dispather: %v", err)
 	}
 
-	startServer := func(network string) {
+	startServerExitWhenFailed := func(network string) {
 		entry.Infof("%s server started", network)
 		if err := d.ListenAndServe(network); err != nil {
 			entry.Fatalf("%s server exited with err: %v", network, err)
@@ -115,17 +112,16 @@ func main() {
 		}
 	}
 
-	if *noTCP && *noUDP {
-		entry.Fatal("no tcp and no udp? what do you want to me to do?")
-	}
-	switch {
-	case *noTCP:
-		go startServer("udp")
-	case *noUDP:
-		go startServer("tcp")
+	switch c.BindProtocol {
+	case "all", "":
+		go startServerExitWhenFailed("tcp")
+		go startServerExitWhenFailed("udp")
+	case "udp":
+		go startServerExitWhenFailed("udp")
+	case "tcp":
+		go startServerExitWhenFailed("tcp")
 	default:
-		go startServer("tcp")
-		go startServer("udp")
+		entry.Fatalf("init dispather: unknown bind protocol: %s", c.BindProtocol)
 	}
 
 	//wait signals

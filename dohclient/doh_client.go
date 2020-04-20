@@ -78,6 +78,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 			},
 			IsTLS:                         true,
 			TLSConfig:                     tlsConfig,
+			ReadBufferSize:                512,
+			WriteBufferSize:               512,
 			ReadTimeout:                   timeout,
 			WriteTimeout:                  timeout,
 			MaxResponseBodySize:           maxSize,
@@ -95,11 +97,8 @@ var (
 	strGet                   = []byte("GET")
 )
 
-// buf pool with len(b) >= 512
-var packBufPool512 = &sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 512)
-	}}
+// buf pool for dns.pack only
+var packBufPool = &sync.Pool{}
 
 var bytesBufPool = sync.Pool{
 	New: func() interface{} {
@@ -107,7 +106,13 @@ var bytesBufPool = sync.Pool{
 	},
 }
 
-func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, error) {
+func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+	t := time.Now()
+	r, err := c.exchange(q, requestLogger)
+	return r, time.Since(t), err
+}
+
+func (c *DoHClient) exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, error) {
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
@@ -118,17 +123,13 @@ func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 	qCopy := *q // just shadow copy, we only need to change q.Id
 	qCopy.Id = 0
 
-	buf := packBufPool512.Get().([]byte)
+	buf, _ := packBufPool.Get().([]byte)
 	wireMsg, err := qCopy.PackBuffer(buf)
-	if cap(wireMsg) > cap(buf) {
-		// this buf is larger than 512, it's ok to put it back to pool
-		defer packBufPool512.Put(wireMsg[:cap(wireMsg)])
-	} else {
-		defer packBufPool512.Put(buf)
-	}
+
 	if err != nil {
 		return nil, fmt.Errorf("PackBuffer: %w", err)
 	}
+	defer packBufPool.Put(wireMsg[:cap(wireMsg)])
 
 	payload := string(wireMsg)
 	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doFasthttp(wireMsg, requestLogger) })
