@@ -26,6 +26,7 @@ import (
 // Config is config
 type Config struct {
 	BindAddr                    string `json:"bind_addr"`
+	BindProtocol                string `json:"bind_protocol"`
 	LocalServerAddr             string `json:"local_server"`
 	LocalServerProtocol         string `json:"local_server_protocol"`
 	LocalServerURL              string `json:"local_server_url"`
