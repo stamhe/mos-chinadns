@@ -591,7 +591,7 @@ func newClient(addr, prot, url, ca string) (upstream, error) {
 			ClientSessionCache: tls.NewLRUClientSessionCache(64),
 		}
 
-		if len(url) != 0 {
+		if len(url) == 0 {
 			return nil, fmt.Errorf("protocol [%s] needs URL", prot)
 		}
 		client = dohclient.NewClient(url, addr, tlsConf, dns.MaxMsgSize, queryTimeout)
