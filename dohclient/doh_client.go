@@ -78,6 +78,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 			},
 			IsTLS:                         true,
 			TLSConfig:                     tlsConfig,
+			ReadBufferSize:                512,
+			WriteBufferSize:               512,
 			ReadTimeout:                   timeout,
 			WriteTimeout:                  timeout,
 			MaxResponseBodySize:           maxSize,
@@ -107,7 +109,13 @@ var bytesBufPool = sync.Pool{
 	},
 }
 
-func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, error) {
+func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+	t := time.Now()
+	r, err := c.exchange(q, requestLogger)
+	return r, time.Since(t), err
+}
+
+func (c *DoHClient) exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, error) {
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such

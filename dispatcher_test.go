@@ -66,7 +66,7 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	if err != nil {
 		return nil, nil, err
 	}
-	c.LocalServer = localServerUDPConn.LocalAddr().String()
+	c.LocalServerAddr = localServerUDPConn.LocalAddr().String()
 	ls := dns.Server{PacketConn: localServerUDPConn, Handler: &vServer{ip: lIP, latency: lLatency}}
 	go ls.ActivateAndServe()
 
@@ -75,7 +75,7 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	if err != nil {
 		return nil, nil, err
 	}
-	c.RemoteServer = remoteServerUDPConn.LocalAddr().String()
+	c.RemoteServerAddr = remoteServerUDPConn.LocalAddr().String()
 	rs := dns.Server{PacketConn: remoteServerUDPConn, Handler: &vServer{ip: rIP, latency: rLatency}}
 	go rs.ActivateAndServe()
 

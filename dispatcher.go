@@ -39,17 +39,17 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+type upstream interface {
+	Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error)
+}
+
 type dispatcher struct {
 	bindAddr                    string
-	localServer                 string
 	localServerBlockUnusualType bool
-	remoteServer                string
 	remoteServerDelayStart      time.Duration
 
-	localClient     *dns.Client
-	localDoHClient  *dohclient.DoHClient
-	remoteClient    *dns.Client
-	remoteDoHClient *dohclient.DoHClient
+	localClient  upstream
+	remoteClient upstream
 
 	localAllowedIPList     *netlist.List
 	localBlockedIPList     *netlist.List
@@ -63,10 +63,18 @@ type dispatcher struct {
 }
 
 const (
-	queryTimeout    = time.Second * 3
-	udpQueryTimeout = time.Second * 3
-	dohQueryTimeout = time.Second * 3
+	queryTimeout = time.Second * 3
 )
+
+type upstreamTCPUDP struct {
+	client dns.Client
+	addr   string
+}
+
+func (u *upstreamTCPUDP) Exchange(q *dns.Msg, _ *logrus.Entry) (r *dns.Msg, rtt time.Duration, err error) {
+	r, rtt, err = u.client.Exchange(q, u.addr)
+	return
+}
 
 var (
 	timerPool  = sync.Pool{}
@@ -83,7 +91,7 @@ func getTimer(t time.Duration) *time.Timer {
 		return time.NewTimer(t)
 	}
 	if timer.Reset(t) {
-		panic("dispather: active timer trapped in timerPool")
+		panic("dispather.go getTimer: active timer trapped in timerPool")
 	}
 	return timer
 }
@@ -107,64 +115,25 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 	d.bindAddr = conf.BindAddr
 
-	if len(conf.LocalServer) == 0 && len(conf.RemoteServer) == 0 {
+	if len(conf.LocalServerAddr) == 0 && len(conf.RemoteServerAddr) == 0 {
 		return nil, errors.New("missing args: both local server and remote server are empty")
 	}
-	if len(conf.LocalServer) != 0 {
-		d.localServer = conf.LocalServer
-		if len(conf.LocalServerURL) != 0 {
-			var rootCA *x509.CertPool
-			var err error
-			if len(conf.LocalServerPEMCA) != 0 {
-				rootCA, err = caPath2Pool(conf.LocalServerPEMCA)
-				if err != nil {
-					return nil, fmt.Errorf("LocalServerBase64CA: caPath2Pool: %w", err)
-				}
-			}
-			tlsConf := &tls.Config{
-				// don't have to set servername here, fasthttp will do it itself.
-				RootCAs:            rootCA,
-				ClientSessionCache: tls.NewLRUClientSessionCache(8),
-			}
-			d.localDoHClient = dohclient.NewClient(conf.LocalServerURL, conf.LocalServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
-		} else {
-			d.localClient = &dns.Client{
-				Timeout:        udpQueryTimeout,
-				UDPSize:        1480,
-				Net:            "udp",
-				SingleInflight: false,
-			}
+
+	if len(conf.LocalServerAddr) != 0 {
+		client, err := newClient(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, conf.LocalServerPEMCA)
+		if err != nil {
+			return nil, fmt.Errorf("init local server: %w", err)
 		}
-	}
-	d.localServerBlockUnusualType = conf.LocalServerBlockUnusualType
-	if len(conf.RemoteServer) != 0 {
-		d.remoteServer = conf.RemoteServer
-		if len(conf.RemoteServerURL) != 0 {
-			var rootCA *x509.CertPool
-			var err error
-			if len(conf.RemoteServerPEMCA) != 0 {
-				rootCA, err = caPath2Pool(conf.RemoteServerPEMCA)
-				if err != nil {
-					return nil, fmt.Errorf("RemoteServerBase64CA: caPath2Pool: %w", err)
-				}
-			}
-			tlsConf := &tls.Config{
-				// don't have to set servername here, fasthttp will do it itself.
-				RootCAs:            rootCA,
-				ClientSessionCache: tls.NewLRUClientSessionCache(8),
-			}
-			d.remoteDoHClient = dohclient.NewClient(conf.RemoteServerURL, conf.RemoteServer, tlsConf, dns.MaxMsgSize, dohQueryTimeout)
-		} else {
-			d.remoteClient = &dns.Client{
-				Timeout:        udpQueryTimeout,
-				Net:            "udp",
-				UDPSize:        1480,
-				SingleInflight: false,
-			}
-		}
+		d.localClient = client
+		d.localServerBlockUnusualType = conf.LocalServerBlockUnusualType
 	}
 
-	if conf.RemoteServerDelayStart > 0 {
+	if len(conf.RemoteServerAddr) != 0 {
+		client, err := newClient(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, conf.RemoteServerPEMCA)
+		if err != nil {
+			return nil, fmt.Errorf("init remote server: %w", err)
+		}
+		d.remoteClient = client
 		d.remoteServerDelayStart = time.Millisecond * time.Duration(conf.RemoteServerDelayStart)
 	}
 
@@ -193,7 +162,6 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		}
 		d.entry.Infof("initDispather: LocalForcedDomainList length %d", dl.Len())
 		d.localAllowedDomainList = dl
-
 		d.localFDLIsWhitelist = conf.LocalFDLIsWhitelist
 	}
 
@@ -315,11 +283,11 @@ func inDomainList(q *dns.Msg, l *domainlist.List) bool {
 }
 
 func (d *dispatcher) hasRemote() bool {
-	return d.remoteClient != nil || d.remoteDoHClient != nil
+	return d.remoteClient != nil
 }
 
 func (d *dispatcher) hasLocal() bool {
-	return d.localClient != nil || d.localDoHClient != nil
+	return d.localClient != nil
 }
 
 // serveDNS: q can't be nil, r might be nil
@@ -474,13 +442,7 @@ func (d *dispatcher) queryLocal(q *dns.Msg, requestLogger *logrus.Entry) (*dns.M
 	if d.localECS != nil {
 		q = appendECSIfNotExist(q, d.localECS)
 	}
-	if d.localDoHClient != nil {
-		t := time.Now()
-		r, err := d.localDoHClient.Exchange(q, requestLogger)
-		return r, time.Since(t), err
-	}
-
-	return d.localClient.Exchange(q, d.localServer)
+	return d.localClient.Exchange(q, requestLogger)
 }
 
 //queryRemote WARNING: to save memory we may modify q directly.
@@ -488,14 +450,7 @@ func (d *dispatcher) queryRemote(q *dns.Msg, requestLogger *logrus.Entry) (*dns.
 	if d.remoteECS != nil {
 		q = appendECSIfNotExist(q, d.remoteECS)
 	}
-
-	if d.remoteDoHClient != nil {
-		t := time.Now()
-		r, err := d.remoteDoHClient.Exchange(q, requestLogger)
-		return r, time.Since(t), err
-	}
-
-	return d.remoteClient.Exchange(q, d.remoteServer)
+	return d.remoteClient.Exchange(q, requestLogger)
 }
 
 // both q and ecs shouldn't be nil, the returned msg is a deep-copy if ecs is appended.
@@ -615,4 +570,43 @@ func caPath2Pool(ca string) (*x509.CertPool, error) {
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(cert)
 	return rootCAs, nil
+}
+
+func newClient(addr, prot, url, ca string) (upstream, error) {
+	var client upstream
+	switch prot {
+	case "tcp", "udp", "":
+		client = &upstreamTCPUDP{
+			client: dns.Client{
+				Timeout:        queryTimeout,
+				UDPSize:        1480,
+				Net:            prot,
+				SingleInflight: false,
+			},
+			addr: addr,
+		}
+	case "doh":
+		var rootCA *x509.CertPool
+		var err error
+		if len(ca) != 0 {
+			rootCA, err = caPath2Pool(ca)
+			if err != nil {
+				return nil, fmt.Errorf("caPath2Pool: %w", err)
+			}
+		}
+		tlsConf := &tls.Config{
+			// don't have to set servername here, fasthttp will do it itself.
+			RootCAs:            rootCA,
+			ClientSessionCache: tls.NewLRUClientSessionCache(64),
+		}
+
+		if len(url) != 0 {
+			return nil, fmt.Errorf("protocol [%s] needs URL", prot)
+		}
+		client = dohclient.NewClient(url, addr, tlsConf, dns.MaxMsgSize, queryTimeout)
+	default:
+		return nil, fmt.Errorf("unsupport protocol: %s", prot)
+	}
+
+	return client, nil
 }
