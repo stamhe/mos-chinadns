@@ -78,8 +78,6 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 			},
 			IsTLS:                         true,
 			TLSConfig:                     tlsConfig,
-			ReadBufferSize:                512,
-			WriteBufferSize:               512,
 			ReadTimeout:                   timeout,
 			WriteTimeout:                  timeout,
 			MaxResponseBodySize:           maxSize,
