@@ -36,16 +36,16 @@ func Test_dohClient(t *testing.T) {
 	q := new(dns.Msg)
 	q.SetQuestion("www.baidu.com.", dns.TypeA)
 
-	start := time.Now()
 	fmt.Printf("First query\n")
-	r, err := c.Exchange(q, requestLogger)
+	start := time.Now()
+	r, rtt, err := c.Exchange(q, requestLogger)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	fmt.Printf("%s\n", r)
-	fmt.Printf("query 0: %s\n", time.Since(start))
+	fmt.Printf("query 0: %s\n", rtt)
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
@@ -53,13 +53,12 @@ func Test_dohClient(t *testing.T) {
 		n := i
 		go func() {
 			defer wg.Done()
-			start := time.Now()
-			_, err := c.Exchange(q, requestLogger)
+			_, rtt, err := c.Exchange(q, requestLogger)
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
-			fmt.Printf("query %d: %s\n", n, time.Since(start))
+			fmt.Printf("query %d: %s\n", n, rtt)
 		}()
 	}
 	wg.Wait()
