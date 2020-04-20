@@ -472,7 +472,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 
 func (d *dispatcher) queryLocal(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
 	if d.localECS != nil {
-		appendECSIfNotExist(q, d.localECS)
+		q = appendECSIfNotExist(q, d.localECS)
 	}
 	if d.localDoHClient != nil {
 		t := time.Now()
@@ -486,7 +486,7 @@ func (d *dispatcher) queryLocal(q *dns.Msg, requestLogger *logrus.Entry) (*dns.M
 //queryRemote WARNING: to save memory we may modify q directly.
 func (d *dispatcher) queryRemote(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
 	if d.remoteECS != nil {
-		appendECSIfNotExist(q, d.remoteECS)
+		q = appendECSIfNotExist(q, d.remoteECS)
 	}
 
 	if d.remoteDoHClient != nil {
@@ -498,8 +498,8 @@ func (d *dispatcher) queryRemote(q *dns.Msg, requestLogger *logrus.Entry) (*dns.
 	return d.remoteClient.Exchange(q, d.remoteServer)
 }
 
-// both q and ecs shouldn't be nil
-func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) {
+// both q and ecs shouldn't be nil, the returned msg is a deep-copy if ecs is appended.
+func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	opt := q.IsEdns0()
 	if opt == nil { // we need a new opt
 		o := new(dns.OPT)
@@ -507,20 +507,27 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) {
 		o.Hdr.Name = "."
 		o.Hdr.Rrtype = dns.TypeOPT
 		o.Option = []dns.EDNS0{ecs}
-		q.Extra = append(q.Extra, o)
-	} else {
-		var hasECS bool = false // check if msg q already has a ECS section
-		for o := range opt.Option {
-			if opt.Option[o].Option() == dns.EDNS0SUBNET {
-				hasECS = true
-				break
-			}
-		}
+		qCopy := q.Copy()
+		qCopy.Extra = append(qCopy.Extra, o)
+		return qCopy
+	}
 
-		if !hasECS {
-			opt.Option = append(opt.Option, ecs)
+	hasECS := false // check if msg q already has a ECS section
+	for o := range opt.Option {
+		if opt.Option[o].Option() == dns.EDNS0SUBNET {
+			hasECS = true
+			break
 		}
 	}
+
+	if !hasECS {
+		qCopy := q.Copy()
+		opt := qCopy.IsEdns0()
+		opt.Option = append(opt.Option, ecs)
+		return qCopy
+	}
+
+	return q
 }
 
 // check if local result should be droped, res can be nil.
