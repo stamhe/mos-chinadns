@@ -236,7 +236,8 @@ func newEDNSSubnet(strECSSubnet string) (*dns.EDNS0_SUBNET, error) {
 }
 
 func (d *dispatcher) ListenAndServe(network string) error {
-	return dns.ListenAndServe(d.bindAddr, network, d)
+	server := &dns.Server{Addr: d.bindAddr, Net: network, Handler: d, UDPSize: 1480}
+	return server.ListenAndServe()
 }
 
 // ServeDNS impliment the interface
