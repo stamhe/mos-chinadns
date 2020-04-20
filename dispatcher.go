@@ -77,12 +77,8 @@ func (u *upstreamTCPUDP) Exchange(q *dns.Msg, _ *logrus.Entry) (r *dns.Msg, rtt 
 }
 
 var (
-	timerPool  = sync.Pool{}
-	bufPool512 = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, 512)
-		},
-	}
+	timerPool   = sync.Pool{}
+	packBufPool = sync.Pool{}
 )
 
 func getTimer(t time.Duration) *time.Timer {
@@ -247,21 +243,15 @@ func (d *dispatcher) ListenAndServe(network string) error {
 func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	r := d.serveDNS(q)
 	if r != nil {
-		buf := bufPool512.Get().([]byte)
+		buf, _ := packBufPool.Get().([]byte)
 		data, err := r.PackBuffer(buf)
-		if cap(data) > cap(buf) {
-			// data is a new allocated buffer, it's bigger than buf
-			// so it's ok to put it back to pool
-			defer bufPool512.Put(data[:cap(data)])
-		} else {
-			defer bufPool512.Put(buf)
-		}
 		if err != nil {
 			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
 			return
 		}
 
 		_, err = w.Write(data)
+		packBufPool.Put(data[:cap(data)])
 		if err != nil {
 			d.entry.Warnf("ServeDNS: Write: %v", err)
 		}
