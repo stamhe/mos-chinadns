@@ -18,7 +18,7 @@
   version = "v1.5.0"
 
 [[projects]]
-  digest = "1:e5e0d775194850f7f06c78f51015ec7c85a59a62613d1ad9847b5ba0f2a021c8"
+  digest = "1:6dbdb48005dbf5814c8a9ccf12fc25a4f1c2c19d6261815c5b16558fe489afe8"
   name = "github.com/klauspost/compress"
   packages = [
     "flate",
@@ -26,8 +26,8 @@
     "zlib",
   ]
   pruneopts = "UT"
-  revision = "788b7f06fee85b7e1d2aa4a3a86f8dbbbcc771ae"
-  version = "v1.10.3"
+  revision = "e2d2089232ece4911272106ae65a7a06746ea38a"
+  version = "v1.10.4"
 
 [[projects]]
   digest = "1:31e761d97c76151dde79e9d28964a812c46efc5baee4085b86f68f0c654450de"
@@ -38,12 +38,12 @@
   version = "v1.0.2"
 
 [[projects]]
-  digest = "1:3e2a07391c0756e06504dfa2fb6c52d55261c8d5a9d790ab316a1544bbe87b0d"
+  branch = "master"
+  digest = "1:3173162a8ee3e9c83f5a72b66b9a4d583ec03693faeb3f180e0bfa28cc78f9d9"
   name = "github.com/miekg/dns"
   packages = ["."]
   pruneopts = "UT"
-  revision = "f515aa579d28efa1af67d9a62cc57f2dfe59da76"
-  version = "v1.1.29"
+  revision = "67373879ce327b5fd112d9301d0a4d62bad6b904"
 
 [[projects]]
   digest = "1:c468422f334a6b46a19448ad59aaffdfc0a36b08fdcc1c749a0b29b6453d7e59"
@@ -54,7 +54,8 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:15ad8a80098fcc7a194b9db6b26d74072a852e4faa957848c8118193d3c69230"
+  branch = "master"
+  digest = "1:e1668570f1d4f9e945d9aa2c899d0403f9e2960884714fc8ff789402488ac647"
   name = "github.com/valyala/fasthttp"
   packages = [
     ".",
@@ -62,8 +63,7 @@
     "stackless",
   ]
   pruneopts = "UT"
-  revision = "e5f51c11919d4f66400334047b897ef0a94c6f3c"
-  version = "v20180529"
+  revision = "5ce12a8e7821c868e464f32fde6507a82ce61ec4"
 
 [[projects]]
   branch = "master"
@@ -74,7 +74,7 @@
     "ed25519/internal/edwards25519",
   ]
   pruneopts = "UT"
-  revision = "0ec3e9974c59449edd84298612e9f16fa13368e8"
+  revision = "3c4aac89819a5fdc28d906456729d3423fd46969"
 
 [[projects]]
   branch = "master"
@@ -88,7 +88,7 @@
     "ipv6",
   ]
   pruneopts = "UT"
-  revision = "118fecf932d8fea033f3b7aca66fba22cfdd517d"
+  revision = "d3edc9973b7eb1fb302b0ff2c62357091cea9a30"
 
 [[projects]]
   branch = "master"
@@ -100,18 +100,18 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:1fbab312c7e34ca131dd8431962292dbc808001f2d07eedcf4b4bdfae7b06372"
+  digest = "1:968aac203feaa75d5e4c758550abcd9523dd736e5e3c2892e94feb9006e4fb36"
   name = "golang.org/x/sys"
   packages = [
     "unix",
     "windows",
   ]
   pruneopts = "UT"
-  revision = "85ca7c5b95cdf1e557abb38a283d1e61a5959c31"
+  revision = "1957bb5e6d1f523308b49060df02171d06ddfc77"
 
 [[projects]]
   branch = "master"
-  digest = "1:ae972188affcffb27a1439cbbbdb72e0e9237c435baee9c25648ea750a0e37c6"
+  digest = "1:d7f832477a1f640fb30917b85e203045c350e8e268d64035909079ca7b12e74f"
   name = "golang.org/x/tools"
   packages = [
     "go/ast/astutil",
@@ -122,9 +122,21 @@
     "go/types/typeutil",
     "internal/gocommand",
     "internal/packagesinternal",
+    "internal/telemetry/event",
   ]
   pruneopts = "UT"
-  revision = "a576cf524670603350282ba181c0efbd384b0892"
+  revision = "9f075f7bfe741c212db778aed6ce67397ec4060a"
+
+[[projects]]
+  branch = "master"
+  digest = "1:918a46e4a2fb83df33f668f5a6bd51b2996775d073fce1800d3ec01b0a5ddd2b"
+  name = "golang.org/x/xerrors"
+  packages = [
+    ".",
+    "internal",
+  ]
+  pruneopts = "UT"
+  revision = "9bdfabe68543c54f90421aeb9a60ef8061b5b544"
 
 [solve-meta]
   analyzer-name = "dep"
