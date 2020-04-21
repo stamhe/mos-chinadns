@@ -43,6 +43,7 @@ var (
 
 type DoHClient struct {
 	preparedURL []byte
+	timeout     time.Duration
 
 	// why using pointer: uint64 atomic value inside HostClient.
 	// avoids 32-bit system encountering "invalid memory address" panic
@@ -69,7 +70,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 	}
 
 	c := &DoHClient{
-		preparedURL: []byte(url + queryParameter8484),
+		preparedURL: []byte(url + "?dns="),
+		timeout:     timeout,
 		fasthttpClient: &fasthttp.HostClient{
 			Addr: host,
 			Dial: func(_ string) (net.Conn, error) {
@@ -82,6 +84,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 			WriteTimeout:                  timeout,
 			MaxResponseBodySize:           maxSize,
 			DisableHeaderNamesNormalizing: true,
+			DisablePathNormalizing:        true,
+			NoDefaultUserAgentHeader:      true,
 		},
 	}
 	return c
@@ -89,10 +93,8 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 
 // some consistent string vars
 var (
-	queryParameter8484       = "?dns="
 	headerCanonicalKeyAccept = []byte("Accept")
 	headerValueMediaType     = []byte("application/dns-message")
-	strGet                   = []byte("GET")
 )
 
 // buf pool for dns.pack only
@@ -130,21 +132,24 @@ func (c *DoHClient) exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 	defer packBufPool.Put(wireMsg[:cap(wireMsg)])
 
 	payload := string(wireMsg)
-	vr, err, shared := c.group.Do(payload, func() (interface{}, error) { return c.doFasthttp(wireMsg, requestLogger) })
-	c.group.Forget(payload)
-	if shared {
-		requestLogger.Debug("Exchange: shared payload")
-	}
+	vr, err, shared := c.group.Do(payload, func() (interface{}, error) {
+		defer c.group.Forget(payload)
+		return c.doFasthttp(wireMsg, requestLogger)
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("group.Do doFasthttp: %w", err)
 	}
-	r, ok := vr.(*dns.Msg)
-	if ok {
-		// change r.Id back
-		r.Id = q.Id
-		return r, nil
+	r := vr.(*dns.Msg)
+	// change r.Id back
+	if shared {
+		requestLogger.Debug("Exchange: shared payload detected")
+		rCopy := *r
+		rCopy.Id = q.Id
+		return &rCopy, nil
 	}
-	return nil, ErrNoResult
+	r.Id = q.Id
+	return r, nil
 }
 
 func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
@@ -166,14 +171,13 @@ func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dn
 	req := fasthttp.AcquireRequest()
 	defer fasthttp.ReleaseRequest(req)
 	req.SetRequestURIBytes(urlBuf.Bytes())
-	req.Header.SetMethodBytes(strGet)
+	req.Header.SetMethod(fasthttp.MethodGet)
 	req.Header.SetCanonical(headerCanonicalKeyAccept, headerValueMediaType)
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	// no needs to call DoTimeout, we already set the io timeout
-	if err := c.fasthttpClient.Do(req, resp); err != nil {
-		return nil, fmt.Errorf("Do: %w", err)
+	if err := c.fasthttpClient.DoTimeout(req, resp, c.timeout); err != nil {
+		return nil, fmt.Errorf("DoTimeout: %w", err)
 	}
 
 	statusCode := resp.StatusCode()
