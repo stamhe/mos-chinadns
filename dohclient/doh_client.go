@@ -170,8 +170,8 @@ func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dn
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp)
 
-	if err := c.fasthttpClient.DoTimeout(req, resp, c.timeout); err != nil {
-		return nil, fmt.Errorf("DoTimeout: %w", err)
+	if err := c.fasthttpClient.Do(req, resp); err != nil {
+		return nil, fmt.Errorf("Do: %w", err)
 	}
 
 	statusCode := resp.StatusCode()
