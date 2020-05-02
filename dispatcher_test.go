@@ -2,12 +2,12 @@
 //
 //     This file is part of mos-chinadns.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     mos-chinadns is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     mos-chinadns is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -80,7 +80,7 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	go rs.ActivateAndServe()
 
 	c.BindAddr = "127.0.0.1:0"
-	d, err := initDispather(&c, logrus.NewEntry(logrus.StandardLogger()))
+	d, err := initDispatcher(&c, logrus.NewEntry(logrus.StandardLogger()))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -2,12 +2,12 @@
 //
 //     This file is part of mos-chinadns.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     mos-chinadns is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     mos-chinadns is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -87,7 +87,7 @@ func getTimer(t time.Duration) *time.Timer {
 		return time.NewTimer(t)
 	}
 	if timer.Reset(t) {
-		panic("dispather.go getTimer: active timer trapped in timerPool")
+		panic("dispatcher.go getTimer: active timer trapped in timerPool")
 	}
 	return timer
 }
@@ -102,7 +102,7 @@ func releaseTimer(timer *time.Timer) {
 	timerPool.Put(timer)
 }
 
-func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
+func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	d := new(dispatcher)
 	d.entry = entry
 
@@ -138,7 +138,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load allowed ip file, %w", err)
 		}
-		d.entry.Infof("initDispather: LocalAllowedIPList length %d", allowedIPList.Len())
+		d.entry.Infof("initDispatcher: LocalAllowedIPList length %d", allowedIPList.Len())
 		d.localAllowedIPList = allowedIPList
 	}
 
@@ -147,7 +147,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load blocked ip file, %w", err)
 		}
-		d.entry.Infof("initDispather: LocalBlockedIPList length %d", blockIPList.Len())
+		d.entry.Infof("initDispatcher: LocalBlockedIPList length %d", blockIPList.Len())
 		d.localBlockedIPList = blockIPList
 	}
 
@@ -156,7 +156,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load forced domain file, %w", err)
 		}
-		d.entry.Infof("initDispather: LocalForcedDomainList length %d", dl.Len())
+		d.entry.Infof("initDispatcher: LocalForcedDomainList length %d", dl.Len())
 		d.localAllowedDomainList = dl
 		d.localFDLIsWhitelist = conf.LocalFDLIsWhitelist
 	}
@@ -166,7 +166,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load blocked domain file, %w", err)
 		}
-		d.entry.Infof("initDispather: LocalBlockedDomainList length %d", dl.Len())
+		d.entry.Infof("initDispatcher: LocalBlockedDomainList length %d", dl.Len())
 		d.localBlockedDomainList = dl
 	}
 
@@ -176,7 +176,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			return nil, fmt.Errorf("parsing local ECS subnet, %w", err)
 		}
 		d.localECS = ecs
-		d.entry.Info("initDispather: local server ECS enabled")
+		d.entry.Info("initDispatcher: local server ECS enabled")
 	}
 
 	if len(conf.RemoteECSSubnet) != 0 {
@@ -185,7 +185,7 @@ func initDispather(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			return nil, fmt.Errorf("parsing remote ECS subnet, %w", err)
 		}
 		d.remoteECS = ecs
-		d.entry.Info("initDispather: remote server ECS enabled")
+		d.entry.Info("initDispatcher: remote server ECS enabled")
 	}
 
 	return d, nil
@@ -240,7 +240,7 @@ func (d *dispatcher) ListenAndServe(network string) error {
 	return server.ListenAndServe()
 }
 
-// ServeDNS impliment the interface
+// ServeDNS implement the interface
 func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	r := d.serveDNS(q)
 	if r != nil {
@@ -357,8 +357,8 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 			}
 
 			requestLogger.Debugf("serveDNS: get reply from local, rtt: %dms", rtt.Milliseconds())
-			if !localOnly && d.dropLoaclRes(res, requestLogger) {
-				requestLogger.Debug("serveDNS: local result droped")
+			if !localOnly && d.dropLocalRes(res, requestLogger) {
+				requestLogger.Debug("serveDNS: local result dropped")
 				close(localServerFailed)
 				return
 			}
@@ -476,57 +476,57 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	return q
 }
 
-// check if local result should be droped, res can be nil.
-func (d *dispatcher) dropLoaclRes(res *dns.Msg, requestLogger *logrus.Entry) bool {
+// check if local result should be dropped, res can be nil.
+func (d *dispatcher) dropLocalRes(res *dns.Msg, requestLogger *logrus.Entry) bool {
 	if res == nil {
-		requestLogger.Debug("dropLoaclRes: true: result is nil")
+		requestLogger.Debug("dropLocalRes: true: result is nil")
 		return true
 	}
 
 	if res.Rcode != dns.RcodeSuccess {
-		requestLogger.Debugf("dropLoaclRes: true: Rcode=%s", dns.RcodeToString[res.Rcode])
+		requestLogger.Debugf("dropLocalRes: true: Rcode=%s", dns.RcodeToString[res.Rcode])
 		return true
 	}
 
 	if len(res.Answer) == 0 {
-		requestLogger.Debug("dropLoaclRes: true: empty answer")
+		requestLogger.Debug("dropLocalRes: true: empty answer")
 		return true
 	}
 
 	isUT := isUnusualType(res)
 	if d.localServerBlockUnusualType && isUT {
-		requestLogger.Debug("dropLoaclRes: true: unusual type")
+		requestLogger.Debug("dropLocalRes: true: unusual type")
 		return true
 	}
 
 	if !isUT { // A and AAAA has IP
-		if d.localBlockedIPList != nil && anwsersMatchNetList(res.Answer, d.localBlockedIPList, requestLogger) {
-			requestLogger.Debug("dropLoaclRes: true: IP in blacklist")
+		if d.localBlockedIPList != nil && answersMatchNetList(res.Answer, d.localBlockedIPList, requestLogger) {
+			requestLogger.Debug("dropLocalRes: true: IP in blacklist")
 			return true
 		}
 
 		if d.localAllowedIPList != nil {
-			if anwsersMatchNetList(res.Answer, d.localAllowedIPList, requestLogger) {
-				requestLogger.Debug("dropLoaclRes: false: IP in whitelist")
+			if answersMatchNetList(res.Answer, d.localAllowedIPList, requestLogger) {
+				requestLogger.Debug("dropLocalRes: false: IP in whitelist")
 				return false
 			}
-			requestLogger.Debug("dropLoaclRes: true: IP not in whitelist")
+			requestLogger.Debug("dropLocalRes: true: IP not in whitelist")
 			return true
 		}
 	}
 
 	// no b/w list, don't drop
-	requestLogger.Debug("dropLoaclRes: false: unusual type")
+	requestLogger.Debug("dropLocalRes: false: unusual type")
 	return false
 }
 
 // list can not be nil
-func anwsersMatchNetList(anwser []dns.RR, list *netlist.List, requestLogger *logrus.Entry) bool {
+func answersMatchNetList(answer []dns.RR, list *netlist.List, requestLogger *logrus.Entry) bool {
 	var matched bool
-	for i := range anwser {
+	for i := range answer {
 		var ip netlist.IPv6
 		var err error
-		switch tmp := anwser[i].(type) {
+		switch tmp := answer[i].(type) {
 		case *dns.A:
 			ip, err = netlist.Conv(tmp.A)
 		case *dns.AAAA:
@@ -543,7 +543,7 @@ func anwsersMatchNetList(anwser []dns.RR, list *netlist.List, requestLogger *log
 		}
 	}
 	if !matched {
-		requestLogger.Debug("anwsersMatchNetList: no A/4A record")
+		requestLogger.Debug("answersMatchNetList: no A/4A record")
 	}
 	return false
 }

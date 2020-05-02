@@ -2,12 +2,12 @@
 //
 //     This file is part of mos-chinadns.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     mos-chinadns is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     mos-chinadns is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -34,11 +33,6 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/valyala/fasthttp"
-)
-
-// err
-var (
-	ErrNoResult = errors.New("unexpected nil result")
 )
 
 type DoHClient struct {
@@ -163,8 +157,8 @@ func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dn
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484 6
 	encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuf)
-	encoder.Write(wireMsg)
-	encoder.Close()
+	_, _ = encoder.Write(wireMsg)
+	_ = encoder.Close()
 
 	//Note: It is forbidden copying Request instances. Create new instances and use CopyTo instead.
 	//Request instance MUST NOT be used from concurrently running goroutines.

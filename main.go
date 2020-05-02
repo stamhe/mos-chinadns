@@ -2,12 +2,12 @@
 //
 //     This file is part of mos-chinadns.
 //
-//     mosdns is free software: you can redistribute it and/or modify
+//     mos-chinadns is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
-//     mosdns is distributed in the hope that it will be useful,
+//     mos-chinadns is distributed in the hope that it will be useful,
 //     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
@@ -97,9 +97,9 @@ func main() {
 		entry.Fatalf("can not load config file, %v", err)
 	}
 
-	d, err := initDispather(c, entry)
+	d, err := initDispatcher(c, entry)
 	if err != nil {
-		entry.Fatalf("init dispather: %v", err)
+		entry.Fatalf("init dispatcher: %v", err)
 	}
 
 	startServerExitWhenFailed := func(network string) {
@@ -121,7 +121,7 @@ func main() {
 	case "tcp":
 		go startServerExitWhenFailed("tcp")
 	default:
-		entry.Fatalf("init dispather: unknown bind protocol: %s", c.BindProtocol)
+		entry.Fatalf("init dispatcher: unknown bind protocol: %s", c.BindProtocol)
 	}
 
 	//wait signals
