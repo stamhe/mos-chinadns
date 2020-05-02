@@ -84,16 +84,57 @@ func NewListFromReader(reader io.Reader) (*List, error) {
 }
 
 //Append appends new Nets to the list.
-//You must call Sort() before call Contains()
+//This modified list, call Sort() before call next Contains()
 func (list *List) Append(newNet ...Net) {
 	list.elems = append(list.elems, newNet...)
 	list.sorted = false
 }
 
+// Merge merges srcList with list
+// This modified list, call Sort() before call next Contains()
+func (list *List) Merge(srcList *List) {
+	list.elems = append(list.elems, srcList.elems...)
+}
+
 //Sort sorts the list, this must be called everytime after
 //list was modified.
 func (list *List) Sort() {
+	if list.sorted {
+		return
+	}
+
 	sort.Sort(list)
+	removedElemsIndexs := make([]int, 0)
+Loop:
+	for i := 0; i < len(list.elems); i++ {
+		j := 0
+		for {
+			j++ // start from 1
+			next := i + j
+			if next > len(list.elems)-1 {
+				break Loop
+			}
+
+			if list.elems[i].Contains(list.elems[next].ip) {
+				removedElemsIndexs = append(removedElemsIndexs, next)
+			} else {
+				i = i + j - 1 // skip removed elem
+				break
+			}
+		}
+	}
+
+	for i, removedElemsIndex := range removedElemsIndexs {
+		var end int
+		if i+1 > len(removedElemsIndexs)-1 {
+			end = len(list.elems)
+		} else {
+			end = removedElemsIndexs[i+1]
+		}
+
+		copy(list.elems[removedElemsIndex-i:], list.elems[removedElemsIndex+1:end])
+	}
+	list.elems = list.elems[:len(list.elems)-len(removedElemsIndexs)]
 	list.sorted = true
 }
 
@@ -107,9 +148,7 @@ func (list *List) Less(i, j int) bool {
 }
 
 func (list *List) Swap(i, j int) {
-	tmp := list.elems[i]
-	list.elems[i] = list.elems[j]
-	list.elems[j] = tmp
+	list.elems[i], list.elems[j] = list.elems[j], list.elems[i]
 }
 
 //Contains reports whether the list includes given ipv6.
@@ -140,14 +179,10 @@ func (list *List) Contains(ipv6 IPv6) bool {
 //smallOrEqual IP1 <= IP2 ?
 func smallOrEqual(IP1, IP2 IPv6) bool {
 	for k := 0; k < IPSize; k++ {
-		switch {
-		case IP1[k] == IP2[k]:
+		if IP1[k] == IP2[k] {
 			continue
-		case IP1[k] > IP2[k]:
-			return false
-		case IP1[k] < IP2[k]:
-			return true
 		}
+		return IP1[k] < IP2[k]
 	}
 	return true
 }

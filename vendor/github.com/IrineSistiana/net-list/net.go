@@ -54,18 +54,19 @@ var (
 
 //NewNet returns a new IPNet, mask should be an ipv6 mask,
 //which means you should +96 if you have an ipv4 mask.
-//ip must be a valid ipv6 address, or ErrNotIPv6 will return.
-func NewNet(ipv6 IPv6, mask uint64) Net {
-	return Net{
-		ip:   ipv6,
-		mask: cidrMask(mask),
+func NewNet(ipv6 IPv6, mask uint) (n Net) {
+	n.ip = ipv6
+	n.mask = cidrMask(mask)
+	for i := 0; i < IPSize; i++ {
+		n.ip[i] &= n.mask[i]
 	}
+	return
 }
 
 //Contains reports whether the ipnet includes ip.
 func (net Net) Contains(ip IPv6) bool {
 	for i := 0; i < IPSize; i++ {
-		if ip[i]&net.mask[i] == net.ip[i]&net.mask[i] {
+		if ip[i]&net.mask[i] == net.ip[i] {
 			continue
 		}
 		return false
@@ -80,25 +81,26 @@ var (
 
 //Conv converts ip to type IPv6.
 //ip must be a valid ipv6 address, or ErrNotIPv6 will return.
-func Conv(ip net.IP) (IPv6, error) {
+func Conv(ip net.IP) (ipv6 IPv6, err error) {
 	if ip = ip.To16(); ip == nil {
-		return IPv6{}, ErrNotIPv6
+		err = ErrNotIPv6
+		return
 	}
-	intIP := IPv6{}
+
 	switch intSize {
 	case 32:
 		for i := 0; i < IPSize; i++ { //0 to 3
 			s := i * 4
-			intIP[i] = uint(binary.BigEndian.Uint32(ip[s : s+4]))
+			ipv6[i] = uint(binary.BigEndian.Uint32(ip[s : s+4]))
 		}
 	case 64:
 		for i := 0; i < IPSize; i++ { //0 to 1
 			s := i * 8
-			intIP[i] = uint(binary.BigEndian.Uint64(ip[s : s+8]))
+			ipv6[i] = uint(binary.BigEndian.Uint64(ip[s : s+8]))
 		}
 	}
 
-	return intIP, nil
+	return
 }
 
 //ParseCIDR parses s as a CIDR notation IP address and prefix length.
@@ -127,7 +129,7 @@ func ParseCIDR(s string) (Net, error) {
 			maskLen = maskLen + 96
 		}
 
-		return NewNet(ipv6, maskLen), nil
+		return NewNet(ipv6, uint(maskLen)), nil
 	}
 
 	ipv6, err := Conv(net.ParseIP(s))
@@ -138,18 +140,18 @@ func ParseCIDR(s string) (Net, error) {
 	return NewNet(ipv6, 128), nil
 }
 
-func cidrMask(n uint64) (m mask) {
+func cidrMask(n uint) (m mask) {
 	for i := uint(0); i < IPSize; i++ {
 		if n != 0 {
 			m[i] = ^(maxUint >> n)
 		} else {
-			m[i] = 0
+			break
 		}
 
 		if n > intSize {
 			n = n - intSize
 		} else {
-			n = 0
+			break
 		}
 	}
 

@@ -1,12 +1,12 @@
-# github.com/IrineSistiana/net-list v0.0.0-20200317081731-22cc5a27e015
+# github.com/IrineSistiana/net-list v0.0.0-20200502033343-f9127c4cbbe7
 ## explicit
 github.com/IrineSistiana/net-list
-# github.com/klauspost/compress v1.10.4
+# github.com/klauspost/compress v1.10.5
 ## explicit
 github.com/klauspost/compress/flate
 github.com/klauspost/compress/gzip
 github.com/klauspost/compress/zlib
-# github.com/konsorten/go-windows-terminal-sequences v1.0.2
+# github.com/konsorten/go-windows-terminal-sequences v1.0.3
 ## explicit
 github.com/konsorten/go-windows-terminal-sequences
 # github.com/miekg/dns v0.0.0-20200410192001-67373879ce32
@@ -23,11 +23,11 @@ github.com/valyala/bytebufferpool
 github.com/valyala/fasthttp
 github.com/valyala/fasthttp/fasthttputil
 github.com/valyala/fasthttp/stackless
-# golang.org/x/crypto v0.0.0-20200420201142-3c4aac89819a
+# golang.org/x/crypto v0.0.0-20200429183012-4b2356b1ed79
 ## explicit
 golang.org/x/crypto/ed25519
 golang.org/x/crypto/ed25519/internal/edwards25519
-# golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
+# golang.org/x/net v0.0.0-20200501053045-e0ff5e5a1de5
 ## explicit
 golang.org/x/net/bpf
 golang.org/x/net/internal/iana
@@ -37,8 +37,9 @@ golang.org/x/net/ipv6
 # golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 ## explicit
 golang.org/x/sync/singleflight
-# golang.org/x/sys v0.0.0-20200420163511-1957bb5e6d1f
+# golang.org/x/sys v0.0.0-20200501145240-bc7a7d42d5c3
 ## explicit
+golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 # golang.org/x/tools v0.0.0-20200420210619-9f075f7bfe74
