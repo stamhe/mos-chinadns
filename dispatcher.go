@@ -44,20 +44,20 @@ type upstream interface {
 }
 
 type dispatcher struct {
-	bindAddr                    string
-	localServerBlockUnusualType bool
-	remoteServerDelayStart      time.Duration
+	bindAddr                  string
+	localDenyUnusualType      bool
+	localDenyResultsWithoutIP bool
+	localCheckCNAME           bool
+	remoteServerDelayStart    time.Duration
 
 	localClient  upstream
 	remoteClient upstream
 
-	localAllowedIPList     *netlist.List
-	localBlockedIPList     *netlist.List
-	localAllowedDomainList *domainlist.List
-	localFDLIsWhitelist    bool
-	localBlockedDomainList *domainlist.List
-	localECS               *dns.EDNS0_SUBNET
-	remoteECS              *dns.EDNS0_SUBNET
+	localIPPolicies     *ipPolicies
+	localDomainPolicies *domainPolicies
+
+	localECS  *dns.EDNS0_SUBNET
+	remoteECS *dns.EDNS0_SUBNET
 
 	entry *logrus.Entry
 }
@@ -121,7 +121,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 			return nil, fmt.Errorf("init local server: %w", err)
 		}
 		d.localClient = client
-		d.localServerBlockUnusualType = conf.LocalServerBlockUnusualType
+		d.localDenyUnusualType = conf.LocalDenyUnusualType
 	}
 
 	if len(conf.RemoteServerAddr) != 0 {
@@ -133,41 +133,32 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		d.remoteServerDelayStart = time.Millisecond * time.Duration(conf.RemoteServerDelayStart)
 	}
 
-	if len(conf.LocalAllowedIPList) != 0 {
-		allowedIPList, err := netlist.NewListFromFile(conf.LocalAllowedIPList)
+	d.localDenyUnusualType = conf.LocalDenyUnusualType
+	d.localDenyResultsWithoutIP = conf.LocalDenyResultsWithoutIP
+	d.localCheckCNAME = conf.LocalCheckCNAME
+
+	if len(conf.LocalIPPolicies) != 0 {
+		args, err := convPoliciesStr(conf.LocalIPPolicies, convIPPolicyActionStr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load allowed ip file, %w", err)
+			return nil, fmt.Errorf("invalid ip policies string, %w", err)
 		}
-		d.entry.Infof("initDispatcher: LocalAllowedIPList length %d", allowedIPList.Len())
-		d.localAllowedIPList = allowedIPList
+		p, err := newIPPolicies(args, d.entry)
+		if err != nil {
+			return nil, fmt.Errorf("loading ip policies, %w", err)
+		}
+		d.localIPPolicies = p
 	}
 
-	if len(conf.LocalBlockedIPList) != 0 {
-		blockIPList, err := netlist.NewListFromFile(conf.LocalBlockedIPList)
+	if len(conf.LocalDomainPolicies) != 0 {
+		args, err := convPoliciesStr(conf.LocalDomainPolicies, convDomainPolicyActionStr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load blocked ip file, %w", err)
+			return nil, fmt.Errorf("invalid domain policies string, %w", err)
 		}
-		d.entry.Infof("initDispatcher: LocalBlockedIPList length %d", blockIPList.Len())
-		d.localBlockedIPList = blockIPList
-	}
-
-	if len(conf.LocalForcedDomainList) != 0 {
-		dl, err := domainlist.LoadFormFile(conf.LocalForcedDomainList)
+		p, err := newDomainPolicies(args, d.entry)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load forced domain file, %w", err)
+			return nil, fmt.Errorf("loading domain policies, %w", err)
 		}
-		d.entry.Infof("initDispatcher: LocalForcedDomainList length %d", dl.Len())
-		d.localAllowedDomainList = dl
-		d.localFDLIsWhitelist = conf.LocalFDLIsWhitelist
-	}
-
-	if len(conf.LocalBlockedDomainList) != 0 {
-		dl, err := domainlist.LoadFormFile(conf.LocalBlockedDomainList)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load blocked domain file, %w", err)
-		}
-		d.entry.Infof("initDispatcher: LocalBlockedDomainList length %d", dl.Len())
-		d.localBlockedDomainList = dl
+		d.localDomainPolicies = p
 	}
 
 	if len(conf.LocalECSSubnet) != 0 {
@@ -263,24 +254,6 @@ func isUnusualType(q *dns.Msg) bool {
 	return q.Opcode != dns.OpcodeQuery || len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET || (q.Question[0].Qtype != dns.TypeA && q.Question[0].Qtype != dns.TypeAAAA)
 }
 
-// check if q has a blocked QName. q and l can't be nil.
-func inDomainList(q *dns.Msg, l *domainlist.List) bool {
-	for i := range q.Question {
-		if l.Has(q.Question[i].Name) {
-			return true
-		}
-	}
-	return false
-}
-
-func (d *dispatcher) hasRemote() bool {
-	return d.remoteClient != nil
-}
-
-func (d *dispatcher) hasLocal() bool {
-	return d.localClient != nil
-}
-
 // serveDNS: q can't be nil, r might be nil
 func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	requestLogger := d.entry.WithFields(logrus.Fields{
@@ -288,55 +261,38 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		"question": q.Question,
 	})
 
-	var localOnly, localBlocked bool
-	if d.localAllowedDomainList != nil {
-		if inDomainList(q, d.localAllowedDomainList) {
-			localOnly = true
-			requestLogger.Debug("serveDNS: is local domain")
+	var doLocal, doRemote, forceLocal bool
+	if d.localClient != nil {
+		doLocal = true
+		if isUnusualType(q) {
+			doLocal = !d.localDenyUnusualType
 		} else {
-			if d.localFDLIsWhitelist {
-				localBlocked = true
-				requestLogger.Debug("serveDNS: block non local domain")
+			if d.localDomainPolicies != nil {
+				p := d.localDomainPolicies.check(q.Question[0].Name)
+				switch p {
+				case policyActionForce:
+					doLocal = true
+					forceLocal = true
+				case policyActionAccept:
+					doLocal = true
+				case policyActionDeny:
+					doLocal = false
+				}
+				requestLogger.Debugf("serveDNS: localDomainPolicies: accept: %v, force %v", doLocal, forceLocal)
 			}
 		}
 	}
 
-	if d.localBlockedDomainList != nil && !localBlocked && inDomainList(q, d.localBlockedDomainList) {
-		localBlocked = true
-		requestLogger.Debug("serveDNS: local: is blocked domain")
-	}
-
-	var doLocal, doRemote bool
-	if d.hasLocal() {
+	if d.remoteClient != nil {
+		doRemote = true
 		switch {
-		case localOnly:
-			doLocal = true
-		case localBlocked:
-			doLocal = false
-		case isUnusualType(q):
-			doLocal = !d.localServerBlockUnusualType
-		default:
-			doLocal = true
-		}
-	} else {
-		doLocal = false
-	}
-
-	if d.hasRemote() {
-		switch {
-		case localOnly:
+		case forceLocal:
 			doRemote = false
-		case localBlocked:
-			doRemote = true
-		default:
-			doRemote = true
 		}
-	} else {
-		doRemote = false
 	}
 
 	resChan := make(chan *dns.Msg, 1)
-	wgChan := make(chan struct{}, 0)
+	serverFailedNotify := make(chan struct{}, 0)
 	wg := sync.WaitGroup{}
 	var localServerDone chan struct{}
 	var localServerFailed chan struct{}
@@ -357,8 +313,8 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 			}
 
 			requestLogger.Debugf("serveDNS: get reply from local, rtt: %dms", rtt.Milliseconds())
-			if !localOnly && d.dropLocalRes(res, requestLogger) {
-				requestLogger.Debug("serveDNS: local result dropped")
+			if !forceLocal && !d.acceptLocalRes(res, requestLogger) {
+				requestLogger.Debug("serveDNS: local result denied")
 				close(localServerFailed)
 				return
 			}
@@ -408,7 +364,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	// watcher
 	go func() {
 		wg.Wait()
-		close(wgChan)
+		close(serverFailedNotify)
 	}()
 
 	timeoutTimer := getTimer(queryTimeout)
@@ -417,7 +373,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	select {
 	case r := <-resChan:
 		return r
-	case <-wgChan:
+	case <-serverFailedNotify:
 		requestLogger.Warn("serveDNS: query failed: all servers failed")
 		r := new(dns.Msg)
 		r.SetReply(q)
@@ -476,76 +432,96 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	return q
 }
 
-// check if local result should be dropped, res can be nil.
-func (d *dispatcher) dropLocalRes(res *dns.Msg, requestLogger *logrus.Entry) bool {
+// check if local result is ok to accept, res can be nil.
+func (d *dispatcher) acceptLocalRes(res *dns.Msg, requestLogger *logrus.Entry) (ok bool) {
+
 	if res == nil {
-		requestLogger.Debug("dropLocalRes: true: result is nil")
-		return true
+		requestLogger.Debug("acceptLocalRes: false: result is nil")
+		return false
 	}
 
 	if res.Rcode != dns.RcodeSuccess {
-		requestLogger.Debugf("dropLocalRes: true: Rcode=%s", dns.RcodeToString[res.Rcode])
+		requestLogger.Debugf("acceptLocalRes: false: Rcode=%s", dns.RcodeToString[res.Rcode])
+		return false
+	}
+
+	if isUnusualType(res) {
+		if d.localDenyUnusualType {
+			requestLogger.Debug("acceptLocalRes: false: unusual type")
+			return false
+		}
+
+		requestLogger.Debug("acceptLocalRes: true: unusual type")
 		return true
 	}
 
 	if len(res.Answer) == 0 {
-		requestLogger.Debug("dropLocalRes: true: empty answer")
-		return true
+		requestLogger.Debug("acceptLocalRes: false: empty answer")
+		return false
 	}
 
-	isUT := isUnusualType(res)
-	if d.localServerBlockUnusualType && isUT {
-		requestLogger.Debug("dropLocalRes: true: unusual type")
-		return true
-	}
-
-	if !isUT { // A and AAAA has IP
-		if d.localBlockedIPList != nil && answersMatchNetList(res.Answer, d.localBlockedIPList, requestLogger) {
-			requestLogger.Debug("dropLocalRes: true: IP in blacklist")
-			return true
-		}
-
-		if d.localAllowedIPList != nil {
-			if answersMatchNetList(res.Answer, d.localAllowedIPList, requestLogger) {
-				requestLogger.Debug("dropLocalRes: false: IP in whitelist")
-				return false
+	// check CNAME
+	if d.localDomainPolicies != nil && d.localCheckCNAME == true {
+		for i := range res.Answer {
+			if cname, ok := res.Answer[i].(*dns.CNAME); ok {
+				p := d.localDomainPolicies.check(cname.Target)
+				switch p {
+				case policyActionAccept, policyActionForce:
+					requestLogger.Debug("acceptLocalRes: true: matched by CNAME")
+					return true
+				case policyActionDeny:
+					requestLogger.Debug("acceptLocalRes: false: matched by CNAME")
+					return false
+				default: // policyMissing
+					continue
+				}
 			}
-			requestLogger.Debug("dropLocalRes: true: IP not in whitelist")
-			return true
 		}
 	}
 
-	// no b/w list, don't drop
-	requestLogger.Debug("dropLocalRes: false: unusual type")
-	return false
-}
+	// check ip
+	var hasIP bool
+	if d.localIPPolicies != nil {
+		for i := range res.Answer {
+			var ip netlist.IPv6
+			var err error
+			switch tmp := res.Answer[i].(type) {
+			case *dns.A:
+				ip, err = netlist.Conv(tmp.A)
+			case *dns.AAAA:
+				ip, err = netlist.Conv(tmp.AAAA)
+			default:
+				continue
+			}
 
-// list can not be nil
-func answersMatchNetList(answer []dns.RR, list *netlist.List, requestLogger *logrus.Entry) bool {
-	var matched bool
-	for i := range answer {
-		var ip netlist.IPv6
-		var err error
-		switch tmp := answer[i].(type) {
-		case *dns.A:
-			ip, err = netlist.Conv(tmp.A)
-		case *dns.AAAA:
-			ip, err = netlist.Conv(tmp.AAAA)
-		default:
-			continue
-		}
-		if err != nil {
-			continue
-		}
-		matched = true
-		if list.Contains(ip) {
-			return true
+			hasIP = true
+
+			if err != nil {
+				requestLogger.Warnf("acceptLocalRes: internal err: netlist.Conv %v", err)
+				continue
+			}
+
+			p := d.localIPPolicies.check(ip)
+			switch p {
+			case policyActionAccept:
+				requestLogger.Debug("acceptLocalRes: true: matched by ip")
+				return true
+			case policyActionDeny:
+				requestLogger.Debug("acceptLocalRes: false: matched by ip")
+				return false
+			default: // policyMissing
+				continue
+			}
 		}
 	}
-	if !matched {
-		requestLogger.Debug("answersMatchNetList: no A/4A record")
+
+	if d.localDenyResultsWithoutIP && !hasIP {
+		requestLogger.Debug("acceptLocalRes: false: no ip RR")
+		return false
 	}
-	return false
+
+	requestLogger.Debug("acceptLocalRes: true: default accpet")
+	return true
 }
 
 func caPath2Pool(ca string) (*x509.CertPool, error) {
@@ -600,4 +576,159 @@ func newClient(addr, prot, url, ca string) (upstream, error) {
 	}
 
 	return client, nil
+}
+
+type policyAction uint8
+
+const (
+	policyActionForceStr   string = "force"
+	policyActionAcceptStr  string = "accept"
+	policyActionDenyStr    string = "deny"
+	policyActionDenyAllStr string = "deny_all"
+
+	policyActionForce policyAction = iota
+	policyActionAccept
+	policyActionDeny
+	policyActionDenyAll
+	policyActionMissing
+)
+
+var convIPPolicyActionStr = map[string]policyAction{
+	policyActionAcceptStr:  policyActionAccept,
+	policyActionDenyStr:    policyActionDeny,
+	policyActionDenyAllStr: policyActionDenyAll,
+}
+
+var convDomainPolicyActionStr = map[string]policyAction{
+	policyActionForceStr:   policyActionForce,
+	policyActionAcceptStr:  policyActionAccept,
+	policyActionDenyStr:    policyActionDeny,
+	policyActionDenyAllStr: policyActionDenyAll,
+}
+
+type rawPolicy struct {
+	action policyAction
+	args   string
+}
+
+type ipPolicies struct {
+	policies []ipPolicy
+}
+
+type ipPolicy struct {
+	action policyAction
+	list   *netlist.List
+}
+
+type domainPolicies struct {
+	policies []domainPolicy
+}
+
+type domainPolicy struct {
+	action policyAction
+	list   *domainlist.List
+}
+
+func convPoliciesStr(s string, f map[string]policyAction) ([]rawPolicy, error) {
+	ps := make([]rawPolicy, 0)
+
+	policiesStr := strings.Split(s, "|")
+	for i := range policiesStr {
+		pStr := strings.SplitN(policiesStr[i], ":", 2)
+
+		p := rawPolicy{}
+		action, ok := f[pStr[0]]
+		if !ok {
+			return nil, fmt.Errorf("unknown action [%s]", pStr[0])
+		}
+		p.action = action
+
+		if len(pStr) == 2 {
+			p.args = pStr[1]
+		}
+
+		ps = append(ps, p)
+	}
+
+	return ps, nil
+}
+
+func newIPPolicies(psArgs []rawPolicy, entry *logrus.Entry) (*ipPolicies, error) {
+	ps := &ipPolicies{
+		policies: make([]ipPolicy, 0),
+	}
+
+	for i := range psArgs {
+		p := ipPolicy{}
+		p.action = psArgs[i].action
+
+		file := psArgs[i].args
+		if len(file) != 0 {
+			list, err := netlist.NewListFromFile(file)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load ip file from %s, %w", file, err)
+			}
+			p.list = list
+			entry.Infof("newIPPolicies: ip list %s loaded, length %d", file, list.Len())
+		}
+
+		ps.policies = append(ps.policies, p)
+	}
+
+	return ps, nil
+}
+
+// ps can not be nil
+func (ps *ipPolicies) check(ip netlist.IPv6) policyAction {
+	for p := range ps.policies {
+		if ps.policies[p].action == policyActionDenyAll {
+			return policyActionDeny
+		}
+
+		if ps.policies[p].list != nil && ps.policies[p].list.Contains(ip) {
+			return ps.policies[p].action
+		}
+	}
+
+	return policyActionMissing
+}
+
+func newDomainPolicies(psArgs []rawPolicy, entry *logrus.Entry) (*domainPolicies, error) {
+	ps := &domainPolicies{
+		policies: make([]domainPolicy, 0),
+	}
+
+	for i := range psArgs {
+		p := domainPolicy{}
+		p.action = psArgs[i].action
+
+		file := psArgs[i].args
+		if len(file) != 0 {
+			list, err := domainlist.LoadFormFile(file)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load domain file from %s, %w", file, err)
+			}
+			p.list = list
+			entry.Infof("newDomainPolicies: domain list %s loaded, length %d", file, list.Len())
+		}
+
+		ps.policies = append(ps.policies, p)
+	}
+
+	return ps, nil
+}
+
+// check: ps can not be nil
+func (ps *domainPolicies) check(fqdn string) policyAction {
+	for p := range ps.policies {
+		if ps.policies[p].action == policyActionDenyAll {
+			return policyActionDeny
+		}
+
+		if ps.policies[p].list != nil && ps.policies[p].list.Has(fqdn) {
+			return ps.policies[p].action
+		}
+	}
+
+	return policyActionMissing
 }

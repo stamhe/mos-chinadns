@@ -19,9 +19,12 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/IrineSistiana/mos-chinadns/domainlist"
 
 	"github.com/sirupsen/logrus"
 
@@ -58,7 +61,7 @@ func (s *vServer) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	w.WriteMsg(r)
 }
 
-func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.IP, allow, block string) (*dispatcher, func(), error) {
+func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.IP, ipPo *ipPolicies, doPo *domainPolicies) (*dispatcher, func(), error) {
 	c := Config{}
 
 	//local
@@ -85,17 +88,8 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 		return nil, nil, err
 	}
 
-	allowedIP, err := netlist.NewListFromReader(bytes.NewReader([]byte(allow)))
-	if err != nil {
-		return nil, nil, err
-	}
-	d.localAllowedIPList = allowedIP
-
-	blockedIP, err := netlist.NewListFromReader(bytes.NewReader([]byte(block)))
-	if err != nil {
-		return nil, nil, err
-	}
-	d.localBlockedIPList = blockedIP
+	d.localIPPolicies = ipPo
+	d.localDomainPolicies = doPo
 
 	return d, func() {
 		ls.Shutdown()
@@ -103,106 +97,114 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	}, nil
 }
 
-func Test_dispatcher_ServeDNS_FastServer(t *testing.T) {
+// deny -> accept -> deny all
+func genTestIPPolicies(accept, deny string) *ipPolicies {
+	acceptList, err := netlist.NewListFromReader(bytes.NewReader([]byte(accept)))
+	if err != nil {
+		panic(err.Error)
+	}
+
+	denyList, err := netlist.NewListFromReader(bytes.NewReader([]byte(deny)))
+	if err != nil {
+		panic(err.Error)
+	}
+	p := &ipPolicies{}
+	p.policies = append(p.policies, ipPolicy{action: policyActionDeny, list: denyList})
+	p.policies = append(p.policies, ipPolicy{action: policyActionAccept, list: acceptList})
+	p.policies = append(p.policies, ipPolicy{action: policyActionDenyAll})
+	return p
+}
+
+// deny -> accept -> force -> accept all
+func genTestDomainPolicies(force, accept, deny string) *domainPolicies {
+	acceptList, err := domainlist.LoadFormReader(bytes.NewReader([]byte(accept)))
+	if err != nil {
+		panic(err.Error)
+	}
+
+	denyList, err := domainlist.LoadFormReader(bytes.NewReader([]byte(deny)))
+	if err != nil {
+		panic(err.Error)
+	}
+
+	forceList, err := domainlist.LoadFormReader(bytes.NewReader([]byte(force)))
+	if err != nil {
+		panic(err.Error)
+	}
+	p := &domainPolicies{}
+	p.policies = append(p.policies, domainPolicy{action: policyActionDeny, list: denyList})
+	p.policies = append(p.policies, domainPolicy{action: policyActionAccept, list: acceptList})
+	p.policies = append(p.policies, domainPolicy{action: policyActionForce, list: forceList})
+	return p
+}
+
+var ip = func(s string) net.IP {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		panic(fmt.Sprintf("invalid ip: %s", s))
+	}
+	return ip
+}
+
+const (
+	wantLocal uint8 = iota
+	wantRemote
+)
+
+func Test_dispatcher_A_AAAA(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
-	lIP := net.IPv4(1, 1, 1, 1)
-	rIP := net.IPv4(1, 1, 1, 2)
-
-	test := func(ll, rl time.Duration, want net.IP) {
-		d, closeServer, err := initTestDispatherAndServer(ll, rl, lIP, rIP, "0.0.0.0/0", "")
+	test := func(testID, domain string, ll, rl int, lIP, rIP net.IP, want uint8, ipPo *ipPolicies, doPo *domainPolicies) {
+		d, closeServer, err := initTestDispatherAndServer(time.Duration(ll)*time.Millisecond, time.Duration(rl)*time.Millisecond, lIP, rIP, ipPo, doPo)
 		if err != nil {
-			t.Fatalf("init dispather, %v", err)
+			t.Fatalf("[%s] init dispatcher, %v", testID, err)
 		}
 		defer closeServer()
 
 		q := new(dns.Msg)
-		q.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
+		q.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 		r := d.serveDNS(q)
 		if r == nil || r.Rcode != dns.RcodeSuccess {
-			t.Fatal("invalied r")
+			t.Fatalf("[%s] invalid r", testID)
 		}
 
 		a := r.Answer[0].(*dns.A)
-		if !a.A.Equal(want) {
-			t.Fatal("not the server we want")
+		var w net.IP
+		if want == wantLocal {
+			w = lIP
+		} else {
+			w = rIP
+		}
+		if !a.A.Equal(w) {
+			t.Fatalf("[%s] not the server we want, want: %s, got %s", testID, w, a.A)
 		}
 	}
+
+	// FastServer
 
 	//应该接受local的回复
-	test(0, time.Second, lIP)
+	test("fs1", "test.com", 0, 500, ip("0.0.0.1"), ip("0.0.0.2"), wantLocal, nil, nil)
 
 	//应该接受remote的回复
-	test(time.Second, 0, rIP)
-}
+	test("fs2", "test.com", 500, 0, ip("0.0.0.1"), ip("0.0.0.2"), wantRemote, nil, nil)
 
-func Test_dispatcher_ServeDNS_AllowedIP(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
-
-	allowedList := "0.0.0.0/1"
-
-	lIPBlocked := net.IPv4(128, 1, 1, 1) // not allowed
-	lIPAllowed := net.IPv4(127, 1, 1, 1) // allowed
-	rIP := net.IPv4(1, 1, 1, 2)
-
-	test := func(ll, rl time.Duration, lIP, want net.IP) {
-		d, closeServer, err := initTestDispatherAndServer(ll, rl, lIP, rIP, allowedList, "")
-		if err != nil {
-			t.Fatalf("init dispather, %v", err)
-		}
-		defer closeServer()
-
-		q := new(dns.Msg)
-		q.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
-		r := d.serveDNS(q)
-		if r == nil || r.Rcode != dns.RcodeSuccess {
-			t.Fatal("invalied r")
-		}
-
-		a := r.Answer[0].(*dns.A)
-		if !a.A.Equal(want) {
-			t.Fatal("not the server we want")
-		}
-	}
+	// ip policies
 
 	//即使local延时更低，但结果被过滤，应该接受remote的回复
-	test(0, time.Millisecond*500, lIPBlocked, rIP)
+	test("ip1", "test.com", 0, 500, ip("192.168.1.1"), ip("0.0.0.2"), wantRemote, genTestIPPolicies("192.168.0.0/24", ""), nil)
+	test("ip2", "test.com", 0, 500, ip("192.168.1.1"), ip("0.0.0.2"), wantRemote, genTestIPPolicies("192.168.0.0/16", "192.168.1.0/24"), nil)
 	//允许的IP, 接受
-	test(0, time.Millisecond*500, lIPAllowed, lIPAllowed)
-}
+	test("ip3", "test.com", 0, 500, ip("192.168.0.1"), ip("0.0.0.2"), wantLocal, genTestIPPolicies("192.168.0.0/24", "192.168.1.0/24"), nil)
 
-func Test_dispatcher_ServeDNS_BlockedIP(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
+	// domain policies
 
-	allowedList := "0.0.0.0/0" // allow all
-	blockedList := "128.0.0.0/1"
+	//forced local
+	test("dp1", "test.com", 500, 0, ip("0.0.0.1"), ip("0.0.0.2"), wantLocal, nil, genTestDomainPolicies("com", "", ""))
+	test("dp2", "test.cn", 500, 0, ip("0.0.0.1"), ip("0.0.0.2"), wantRemote, nil, genTestDomainPolicies("com", "", ""))
 
-	lIPBlocked := net.IPv4(128, 1, 1, 1) // not allowed
-	lIPAllowed := net.IPv4(127, 1, 1, 1) // allowed
-	rIP := net.IPv4(1, 1, 1, 2)
+	test("dp3", "test.com", 0, 500, ip("0.0.0.1"), ip("0.0.0.2"), wantLocal, nil, genTestDomainPolicies("", "com", ""))
+	test("dp4", "test.com", 500, 0, ip("0.0.0.1"), ip("0.0.0.2"), wantRemote, nil, genTestDomainPolicies("", "com", ""))
 
-	test := func(ll, rl time.Duration, lIP, want net.IP) {
-		d, closeServer, err := initTestDispatherAndServer(ll, rl, lIP, rIP, allowedList, blockedList)
-		if err != nil {
-			t.Fatalf("init dispather, %v", err)
-		}
-		defer closeServer()
+	test("dp5", "test.cn", 0, 500, ip("0.0.0.1"), ip("0.0.0.2"), wantRemote, nil, genTestDomainPolicies("", "com", "cn"))
 
-		q := new(dns.Msg)
-		q.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
-		r := d.serveDNS(q)
-		if r == nil || r.Rcode != dns.RcodeSuccess {
-			t.Fatal("invalied r")
-		}
-
-		a := r.Answer[0].(*dns.A)
-		if !a.A.Equal(want) {
-			t.Fatal("not the server we want")
-		}
-	}
-
-	//即使local延时更低，但结果被过滤，应该接受remote的回复
-	test(0, time.Millisecond*500, lIPBlocked, rIP)
-	//允许的IP, 接受
-	test(0, time.Millisecond*500, lIPAllowed, lIPAllowed)
 }

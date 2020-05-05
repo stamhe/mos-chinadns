@@ -25,25 +25,25 @@ import (
 
 // Config is config
 type Config struct {
-	BindAddr                    string `json:"bind_addr"`
-	BindProtocol                string `json:"bind_protocol"`
-	LocalServerAddr             string `json:"local_server_addr"`
-	LocalServerProtocol         string `json:"local_server_protocol"`
-	LocalServerURL              string `json:"local_server_url"`
-	LocalServerPEMCA            string `json:"local_server_pem_ca"`
-	LocalServerBlockUnusualType bool   `json:"local_server_block_unusual_type"`
+	BindAddr            string `json:"bind_addr"`
+	BindProtocol        string `json:"bind_protocol"`
+	LocalServerAddr     string `json:"local_server_addr"`
+	LocalServerProtocol string `json:"local_server_protocol"`
+	LocalServerURL      string `json:"local_server_url"`
+	LocalServerPEMCA    string `json:"local_server_pem_ca"`
+
+	LocalDenyUnusualType      bool `json:"local_deny_unusual_type"`
+	LocalDenyResultsWithoutIP bool `json:"local_deny_results_without_ip"`
+	LocalCheckCNAME           bool `json:"local_check_cname"`
+
+	LocalIPPolicies     string `json:"local_ip_policies"`
+	LocalDomainPolicies string `json:"local_domain_policies"`
 
 	RemoteServerAddr       string `json:"remote_server_addr"`
 	RemoteServerProtocol   string `json:"remote_server_protocol"`
 	RemoteServerURL        string `json:"remote_server_url"`
 	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
 	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
-
-	LocalAllowedIPList     string `json:"local_allowed_ip_list"`
-	LocalBlockedIPList     string `json:"local_blocked_ip_list"`
-	LocalForcedDomainList  string `json:"local_forced_domain_list"`
-	LocalFDLIsWhitelist    bool   `json:"local_fdl_is_whitelist"`
-	LocalBlockedDomainList string `json:"local_blocked_domain_list"`
 
 	LocalECSSubnet  string `json:"local_ecs_subnet"`
 	RemoteECSSubnet string `json:"remote_ecs_subnet"`
