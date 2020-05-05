@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IrineSistiana/mos-chinadns/bufpool"
+
 	"golang.org/x/sync/singleflight"
 
 	"github.com/sirupsen/logrus"
@@ -91,9 +93,6 @@ var (
 	headerValueMediaType     = []byte("application/dns-message")
 )
 
-// buf pool for dns.pack only
-var packBufPool = &sync.Pool{}
-
 var bytesBufPool = sync.Pool{
 	New: func() interface{} {
 		return &bytes.Buffer{}
@@ -117,13 +116,14 @@ func (c *DoHClient) exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg,
 	qCopy := *q // just shadow copy, we only need to change q.Id
 	qCopy.Id = 0
 
-	buf, _ := packBufPool.Get().([]byte)
+	buf := bufpool.AcquirePackBuf()
 	wireMsg, err := qCopy.PackBuffer(buf)
 
 	if err != nil {
+		bufpool.ReleasePackBuf(buf)
 		return nil, fmt.Errorf("PackBuffer: %w", err)
 	}
-	defer packBufPool.Put(wireMsg[:cap(wireMsg)])
+	defer bufpool.ReleasePackBuf(wireMsg)
 
 	payload := string(wireMsg)
 	vr, err, shared := c.group.Do(payload, func() (interface{}, error) {

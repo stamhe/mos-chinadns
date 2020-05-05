@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IrineSistiana/mos-chinadns/bufpool"
+
 	"github.com/IrineSistiana/mos-chinadns/domainlist"
 
 	"github.com/IrineSistiana/mos-chinadns/dohclient"
@@ -44,11 +46,11 @@ type upstream interface {
 }
 
 type dispatcher struct {
-	bindAddr                  string
-	localDenyUnusualType      bool
-	localDenyResultsWithoutIP bool
-	localCheckCNAME           bool
-	remoteServerDelayStart    time.Duration
+	bindAddr                 string
+	localDenyUnusualType     bool
+	localDenyResultWithoutIP bool
+	localCheckCNAME          bool
+	remoteServerDelayStart   time.Duration
 
 	localClient  upstream
 	remoteClient upstream
@@ -77,8 +79,7 @@ func (u *upstreamTCPUDP) Exchange(q *dns.Msg, _ *logrus.Entry) (r *dns.Msg, rtt 
 }
 
 var (
-	timerPool   = sync.Pool{}
-	packBufPool = sync.Pool{}
+	timerPool = sync.Pool{}
 )
 
 func getTimer(t time.Duration) *time.Timer {
@@ -134,7 +135,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	d.localDenyUnusualType = conf.LocalDenyUnusualType
-	d.localDenyResultsWithoutIP = conf.LocalDenyResultsWithoutIP
+	d.localDenyResultWithoutIP = conf.LocalDenyResultsWithoutIP
 	d.localCheckCNAME = conf.LocalCheckCNAME
 
 	if len(conf.LocalIPPolicies) != 0 {
@@ -235,15 +236,16 @@ func (d *dispatcher) ListenAndServe(network string) error {
 func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 	r := d.serveDNS(q)
 	if r != nil {
-		buf, _ := packBufPool.Get().([]byte)
+		buf := bufpool.AcquirePackBuf()
 		data, err := r.PackBuffer(buf)
 		if err != nil {
+			bufpool.ReleasePackBuf(buf)
 			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
 			return
 		}
 
 		_, err = w.Write(data)
-		packBufPool.Put(data[:cap(data)])
+		bufpool.ReleasePackBuf(data)
 		if err != nil {
 			d.entry.Warnf("ServeDNS: Write: %v", err)
 		}
@@ -515,7 +517,7 @@ func (d *dispatcher) acceptLocalRes(res *dns.Msg, requestLogger *logrus.Entry) (
 		}
 	}
 
-	if d.localDenyResultsWithoutIP && !hasIP {
+	if d.localDenyResultWithoutIP && !hasIP {
 		requestLogger.Debug("acceptLocalRes: false: no ip RR")
 		return false
 	}
