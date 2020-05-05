@@ -104,37 +104,22 @@ func (list *List) Sort() {
 	}
 
 	sort.Sort(list)
-	removedElemsIndexs := make([]int, 0)
-Loop:
-	for i := 0; i < len(list.elems); i++ {
-		j := 0
-		for {
-			j++ // start from 1
-			next := i + j
-			if next > len(list.elems)-1 {
-				break Loop
-			}
 
-			if list.elems[i].Contains(list.elems[next].ip) {
-				removedElemsIndexs = append(removedElemsIndexs, next)
-			} else {
-				i = i + j - 1 // skip removed elem
-				break
-			}
+	result := list.elems[:0]
+	lastValid := 0
+	for i := range list.elems {
+		if i == 0 { // first elem
+			result = append(result, list.elems[i])
+			continue
+		}
+
+		if !list.elems[lastValid].Contains(list.elems[i].ip) {
+			result = append(result, list.elems[i])
+			lastValid = i
 		}
 	}
 
-	for i, removedElemsIndex := range removedElemsIndexs {
-		var end int
-		if i+1 > len(removedElemsIndexs)-1 {
-			end = len(list.elems)
-		} else {
-			end = removedElemsIndexs[i+1]
-		}
-
-		copy(list.elems[removedElemsIndex-i:], list.elems[removedElemsIndex+1:end])
-	}
-	list.elems = list.elems[:len(list.elems)-len(removedElemsIndexs)]
+	list.elems = result
 	list.sorted = true
 }
 
