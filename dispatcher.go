@@ -119,6 +119,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("caPath2Pool: %w", err)
 		}
+		d.entry.Info("initDispatcher: CA cert loaded")
 	}
 
 	if len(conf.LocalServerAddr) == 0 && len(conf.RemoteServerAddr) == 0 {
