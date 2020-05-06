@@ -19,6 +19,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,16 +30,19 @@ import (
 )
 
 var (
+	version = "dev/unknown"
+
 	configPath  = flag.String("c", "config.json", "[path] load config from file")
 	genConfigTo = flag.String("gen", "", "[path] generate a config template here")
 
 	dir                 = flag.String("dir", "", "[path] change working directory to here")
 	dirFollowExecutable = flag.Bool("dir2exe", false, "change working directory to the executable that started the current process")
 
-	verbose = flag.Bool("v", false, "more log")
-	quite   = flag.Bool("q", false, "no log")
+	debug = flag.Bool("debug", false, "more log")
+	quite = flag.Bool("quite", false, "no log")
 
-	cpu = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
+	cpu         = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
+	showVersion = flag.Bool("v", false, "show verison")
 )
 
 func main() {
@@ -49,19 +53,30 @@ func main() {
 	switch {
 	case *quite:
 		logger.SetLevel(logrus.ErrorLevel)
-	case *verbose:
+	case *debug:
 		logger.SetLevel(logrus.DebugLevel)
 	default:
 		logger.SetLevel(logrus.InfoLevel)
 	}
 	entry := logrus.NewEntry(logger)
+
+	// show version
+	if *showVersion {
+		fmt.Printf("%s\n", version)
+		return
+	}
+
+	// show summary
+	entry.Infof("main: mos-chinadns ver: %s", version)
+	entry.Infof("main: arch: %s os: %s", runtime.GOARCH, runtime.GOOS)
+
 	//gen config
 	if len(*genConfigTo) != 0 {
 		err := genJSONConfig(*genConfigTo)
 		if err != nil {
-			entry.Errorf("can not generate config template, %v", err)
+			entry.Errorf("main: can not generate config template, %v", err)
 		} else {
-			entry.Print("config template generated")
+			entry.Info("main: config template generated")
 		}
 		return
 	}
@@ -71,7 +86,7 @@ func main() {
 	if *dirFollowExecutable {
 		ex, err := os.Executable()
 		if err != nil {
-			entry.Fatalf("get executable path: %v", err)
+			entry.Fatalf("main: get executable path: %v", err)
 		}
 		wd = filepath.Dir(ex)
 	} else {
@@ -82,32 +97,32 @@ func main() {
 	if len(wd) != 0 {
 		err := os.Chdir(wd)
 		if err != nil {
-			entry.Fatalf("changes the current working directory to %s: %v", wd, err)
+			entry.Fatalf("main: change the current working directory: %v", err)
 		}
-		entry.Infof("changes the current working directory to %s", wd)
+		entry.Infof("main: current working directory: %s", wd)
 	}
 
 	//checking
 	if len(*configPath) == 0 {
-		entry.Fatal("need a config file")
+		entry.Fatal("main: need a config file")
 	}
 
 	c, err := loadJSONConfig(*configPath)
 	if err != nil {
-		entry.Fatalf("can not load config file, %v", err)
+		entry.Fatalf("main: can not load config file, %v", err)
 	}
 
 	d, err := initDispatcher(c, entry)
 	if err != nil {
-		entry.Fatalf("init dispatcher: %v", err)
+		entry.Fatalf("main: init dispatcher: %v", err)
 	}
 
 	startServerExitWhenFailed := func(network string) {
-		entry.Infof("%s server started", network)
+		entry.Infof("main: %s server started", network)
 		if err := d.ListenAndServe(network); err != nil {
-			entry.Fatalf("%s server exited with err: %v", network, err)
+			entry.Fatalf("main: %s server exited with err: %v", network, err)
 		} else {
-			entry.Infof("%s server exited", network)
+			entry.Infof("main: %s server exited", network)
 			os.Exit(0)
 		}
 	}
@@ -121,13 +136,13 @@ func main() {
 	case "tcp":
 		go startServerExitWhenFailed("tcp")
 	default:
-		entry.Fatalf("init dispatcher: unknown bind protocol: %s", c.BindProtocol)
+		entry.Fatalf("main: unknown bind protocol: %s", c.BindProtocol)
 	}
 
 	//wait signals
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)
 	s := <-osSignals
-	entry.Infof("exiting: signal: %v", s)
+	entry.Infof("main: exiting: signal: %v", s)
 	os.Exit(0)
 }
