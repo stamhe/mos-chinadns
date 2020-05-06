@@ -522,17 +522,15 @@ func (d *dispatcher) acceptLocalRes(res *dns.Msg, requestLogger *logrus.Entry) (
 }
 
 func caPath2Pool(ca string) (*x509.CertPool, error) {
-	certPEMBlock, err := ioutil.ReadFile(ca)
+	pem, err := ioutil.ReadFile(ca)
 	if err != nil {
 		return nil, fmt.Errorf("ReadFile: %w", err)
 	}
 
-	cert, err := x509.ParseCertificate(certPEMBlock)
-	if err != nil {
-		return nil, fmt.Errorf("ParseCertificate: %w", err)
-	}
 	rootCAs := x509.NewCertPool()
-	rootCAs.AddCert(cert)
+	if ok := rootCAs.AppendCertsFromPEM(pem); !ok {
+		return nil, fmt.Errorf("AppendCertsFromPEM: no certificate was successfully parsed in %s", ca)
+	}
 	return rootCAs, nil
 }
 
