@@ -162,8 +162,8 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		d.localDomainPolicies = p
 	}
 
-	if len(conf.LocalECSSubnet) != 0 {
-		ecs, err := newEDNSSubnet(conf.LocalECSSubnet)
+	if len(conf.LocalECS) != 0 {
+		ecs, err := newEDNSSubnet(conf.LocalECS)
 		if err != nil {
 			return nil, fmt.Errorf("parsing local ECS subnet, %w", err)
 		}
@@ -171,8 +171,8 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		d.entry.Info("initDispatcher: local server ECS enabled")
 	}
 
-	if len(conf.RemoteECSSubnet) != 0 {
-		ecs, err := newEDNSSubnet(conf.RemoteECSSubnet)
+	if len(conf.RemoteECS) != 0 {
+		ecs, err := newEDNSSubnet(conf.RemoteECS)
 		if err != nil {
 			return nil, fmt.Errorf("parsing remote ECS subnet, %w", err)
 		}

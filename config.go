@@ -45,8 +45,8 @@ type Config struct {
 	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
 	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
 
-	LocalECSSubnet  string `json:"local_ecs_subnet"`
-	RemoteECSSubnet string `json:"remote_ecs_subnet"`
+	LocalECS  string `json:"local_ecs"`
+	RemoteECS string `json:"remote_ecs"`
 }
 
 func loadJSONConfig(configFile string) (*Config, error) {
