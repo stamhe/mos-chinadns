@@ -112,12 +112,21 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 	d.bindAddr = conf.BindAddr
 
+	var rootCAs *x509.CertPool
+	var err error
+	if len(conf.TLSPEMCA) != 0 {
+		rootCAs, err = caPath2Pool(conf.TLSPEMCA)
+		if err != nil {
+			return nil, fmt.Errorf("caPath2Pool: %w", err)
+		}
+	}
+
 	if len(conf.LocalServerAddr) == 0 && len(conf.RemoteServerAddr) == 0 {
 		return nil, errors.New("missing args: both local server and remote server are empty")
 	}
 
 	if len(conf.LocalServerAddr) != 0 {
-		client, err := newClient(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, conf.LocalServerPEMCA)
+		client, err := newClient(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init local server: %w", err)
 		}
@@ -126,7 +135,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.RemoteServerAddr) != 0 {
-		client, err := newClient(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, conf.RemoteServerPEMCA)
+		client, err := newClient(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init remote server: %w", err)
 		}
@@ -534,7 +543,7 @@ func caPath2Pool(ca string) (*x509.CertPool, error) {
 	return rootCAs, nil
 }
 
-func newClient(addr, prot, url, ca string) (upstream, error) {
+func newClient(addr, prot, url string, rootCAs *x509.CertPool) (upstream, error) {
 	var client upstream
 	switch prot {
 	case "tcp", "udp", "":
@@ -548,17 +557,9 @@ func newClient(addr, prot, url, ca string) (upstream, error) {
 			addr: addr,
 		}
 	case "doh":
-		var rootCA *x509.CertPool
-		var err error
-		if len(ca) != 0 {
-			rootCA, err = caPath2Pool(ca)
-			if err != nil {
-				return nil, fmt.Errorf("caPath2Pool: %w", err)
-			}
-		}
 		tlsConf := &tls.Config{
 			// don't have to set servername here, fasthttp will do it itself.
-			RootCAs:            rootCA,
+			RootCAs:            rootCAs,
 			ClientSessionCache: tls.NewLRUClientSessionCache(64),
 		}
 

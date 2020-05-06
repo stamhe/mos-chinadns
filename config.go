@@ -30,7 +30,6 @@ type Config struct {
 	LocalServerAddr     string `json:"local_server_addr"`
 	LocalServerProtocol string `json:"local_server_protocol"`
 	LocalServerURL      string `json:"local_server_url"`
-	LocalServerPEMCA    string `json:"local_server_pem_ca"`
 
 	LocalDenyUnusualType      bool `json:"local_deny_unusual_type"`
 	LocalDenyResultsWithoutIP bool `json:"local_deny_results_without_ip"`
@@ -42,11 +41,12 @@ type Config struct {
 	RemoteServerAddr       string `json:"remote_server_addr"`
 	RemoteServerProtocol   string `json:"remote_server_protocol"`
 	RemoteServerURL        string `json:"remote_server_url"`
-	RemoteServerPEMCA      string `json:"remote_server_pem_ca"`
 	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
 
 	LocalECS  string `json:"local_ecs"`
 	RemoteECS string `json:"remote_ecs"`
+
+	TLSPEMCA string `json:"tls_pem_ca"`
 }
 
 func loadJSONConfig(configFile string) (*Config, error) {
