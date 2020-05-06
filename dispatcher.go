@@ -457,11 +457,6 @@ func (d *dispatcher) acceptLocalRes(res *dns.Msg, requestLogger *logrus.Entry) (
 		return true
 	}
 
-	if len(res.Answer) == 0 {
-		requestLogger.Debug("acceptLocalRes: false: empty answer")
-		return false
-	}
-
 	// check CNAME
 	if d.localDomainPolicies != nil && d.localCheckCNAME == true {
 		for i := range res.Answer {
