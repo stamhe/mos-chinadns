@@ -18,7 +18,7 @@
 package main
 
 import (
-	"crypto/tls"
+	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -30,10 +30,7 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mos-chinadns/bufpool"
-
 	"github.com/IrineSistiana/mos-chinadns/domainlist"
-
-	"github.com/IrineSistiana/mos-chinadns/dohclient"
 
 	"github.com/miekg/dns"
 
@@ -41,9 +38,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type upstream interface {
-	Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error)
-}
+var (
+	errAllServersFailed  = errors.New("all servers are failed")
+	errAllServersTimeout = errors.New("all server timeout")
+)
 
 type dispatcher struct {
 	bindAddr                 string
@@ -67,16 +65,6 @@ type dispatcher struct {
 const (
 	queryTimeout = time.Second * 3
 )
-
-type upstreamTCPUDP struct {
-	client dns.Client
-	addr   string
-}
-
-func (u *upstreamTCPUDP) Exchange(q *dns.Msg, _ *logrus.Entry) (r *dns.Msg, rtt time.Duration, err error) {
-	r, rtt, err = u.client.Exchange(q, u.addr)
-	return
-}
 
 var (
 	timerPool = sync.Pool{}
@@ -127,7 +115,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.LocalServerAddr) != 0 {
-		client, err := newClient(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, rootCAs)
+		client, err := newUpstream(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init local server: %w", err)
 		}
@@ -136,7 +124,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.RemoteServerAddr) != 0 {
-		client, err := newClient(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, rootCAs)
+		client, err := newUpstream(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init remote server: %w", err)
 		}
@@ -237,41 +225,44 @@ func newEDNSSubnet(strECSSubnet string) (*dns.EDNS0_SUBNET, error) {
 	return ednsSubnet, nil
 }
 
-func (d *dispatcher) ListenAndServe(network string) error {
-	server := &dns.Server{Addr: d.bindAddr, Net: network, Handler: d, UDPSize: 1480}
-	return server.ListenAndServe()
-}
-
-// ServeDNS implement the interface
-func (d *dispatcher) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
-	r := d.serveDNS(q)
-	if r != nil {
-		buf := bufpool.AcquirePackBuf()
-		data, err := r.PackBuffer(buf)
-		if err != nil {
-			bufpool.ReleasePackBuf(buf)
-			d.entry.Warnf("ServeDNS: PackBuffer: %v", err)
-			return
-		}
-
-		_, err = w.Write(data)
-		bufpool.ReleasePackBuf(data)
-		if err != nil {
-			d.entry.Warnf("ServeDNS: Write: %v", err)
-		}
-	}
-}
-
 func isUnusualType(q *dns.Msg) bool {
 	return q.Opcode != dns.OpcodeQuery || len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET || (q.Question[0].Qtype != dns.TypeA && q.Question[0].Qtype != dns.TypeAAAA)
 }
 
-// serveDNS: q can't be nil, r might be nil
-func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
-	requestLogger := d.entry.WithFields(logrus.Fields{
-		"id":       q.Id,
-		"question": q.Question,
-	})
+func (d *dispatcher) serveDNS(q *dns.Msg, entry *logrus.Entry) (r *dns.Msg) {
+	rRaw := d.serveRawDNS(q, nil, entry)
+	if cap(rRaw) == 0 {
+		return nil
+	}
+
+	r = new(dns.Msg)
+	err := r.Unpack(rRaw)
+	bufpool.ReleaseMsgBuf(rRaw)
+	if err != nil {
+		entry.Warnf("serveDNS: Unpack: %v", err)
+	}
+	return r
+}
+
+// serveRawDNS: q can't be nil, result might be nil
+func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) []byte {
+
+	// if qRaw is nil, we will pack the q
+	// and release it buffer after func returned
+	if qRaw == nil {
+		buf := bufpool.AcquirePackBuf()
+		var err error
+		qRaw, err = q.PackBuffer(buf)
+		if err != nil {
+			requestLogger.Warnf("serveDNS: q.PackBuffer: %v", err)
+			bufpool.ReleasePackBuf(buf)
+			return nil
+		}
+		defer bufpool.ReleasePackBuf(qRaw)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var doLocal, doRemote, forceLocal bool
 	if d.localClient != nil {
@@ -303,9 +294,10 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 		}
 	}
 
-	resChan := make(chan *dns.Msg, 1)
+	resChan := make(chan []byte, 1)
+
 	serverFailedNotify := make(chan struct{}, 0)
-	wg := sync.WaitGroup{}
+	upstreamWG := sync.WaitGroup{}
 	var localServerDone chan struct{}
 	var localServerFailed chan struct{}
 
@@ -313,38 +305,42 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 	if doLocal {
 		localServerDone = make(chan struct{})
 		localServerFailed = make(chan struct{})
-		wg.Add(1)
+		upstreamWG.Add(1)
 		go func() {
-			defer wg.Done()
+			defer upstreamWG.Done()
 			requestLogger.Debug("serveDNS: query local server")
-			res, rtt, err := d.queryLocal(q, requestLogger)
+			rRaw, rtt, err := d.queryLocal(ctx, q, qRaw, requestLogger)
 			if err != nil {
-				requestLogger.Warnf("serveDNS: local server failed: %v", err)
+				if ctx.Err() == nil {
+					requestLogger.Warnf("serveDNS: local server failed: %v", err)
+				}
 				close(localServerFailed)
 				return
 			}
 
 			requestLogger.Debugf("serveDNS: get reply from local, rtt: %dms", rtt.Milliseconds())
-			if !forceLocal && !d.acceptLocalRes(res, requestLogger) {
+			if !forceLocal && !d.acceptLocalRes(rRaw, requestLogger) {
 				requestLogger.Debug("serveDNS: local result denied")
 				close(localServerFailed)
+				bufpool.ReleaseMsgBuf(rRaw)
 				return
 			}
 
 			select {
-			case resChan <- res:
+			case resChan <- rRaw:
 			default:
+				bufpool.ReleaseMsgBuf(rRaw)
 			}
-			close(localServerDone)
 			requestLogger.Debug("serveDNS: local result accepted")
+			close(localServerDone)
 		}()
 	}
 
 	// remote
 	if doRemote {
-		wg.Add(1)
+		upstreamWG.Add(1)
 		go func() {
-			defer wg.Done()
+			defer upstreamWG.Done()
 
 			if doLocal && d.remoteServerDelayStart > 0 {
 				timer := getTimer(d.remoteServerDelayStart)
@@ -359,61 +355,108 @@ func (d *dispatcher) serveDNS(q *dns.Msg) *dns.Msg {
 			}
 
 			requestLogger.Debug("serveDNS: query remote server")
-			res, rtt, err := d.queryRemote(q, requestLogger)
+			rRaw, rtt, err := d.queryRemote(ctx, q, qRaw, requestLogger)
 			if err != nil {
-				requestLogger.Warnf("serveDNS: remote server failed: %v", err)
+				if ctx.Err() == nil {
+					requestLogger.Warnf("serveDNS: remote server failed: %v", err)
+				}
 				return
 			}
 			requestLogger.Debugf("serveDNS: get reply from remote, rtt: %dms", rtt.Milliseconds())
 
 			select {
-			case resChan <- res:
+			case resChan <- rRaw:
 			default:
+				bufpool.ReleaseMsgBuf(rRaw)
 			}
 		}()
 	}
 
 	// watcher
+	serveDNSWG := sync.WaitGroup{}
+	serveDNSWG.Add(1)
+	defer serveDNSWG.Done()
 	go func() {
-		wg.Wait()
-		close(serverFailedNotify)
+		upstreamWG.Wait()
+		// there has a very small probability that
+		// below select{} will select case:<-serverFailedNotify
+		// if both case1 and case2 are in ready state.
+		// dont close serverFailedNotify if resChan is ready
+		if len(resChan) == 0 {
+			close(serverFailedNotify)
+		}
+
+		serveDNSWG.Wait()
+		emptyResChan(resChan) // some buf might still be traped in resChan
 	}()
 
 	timeoutTimer := getTimer(queryTimeout)
 	defer releaseTimer(timeoutTimer)
 
 	select {
-	case r := <-resChan:
-		return r
+	case rRaw := <-resChan:
+		return rRaw
 	case <-serverFailedNotify:
 		requestLogger.Warn("serveDNS: query failed: all servers failed")
 		r := new(dns.Msg)
 		r.SetReply(q)
 		r.Rcode = dns.RcodeServerFailure
-		return r
+		buf := bufpool.AcquirePackBuf()
+		rRawWithPackBuf, err := r.PackBuffer(buf)
+		if err != nil {
+			requestLogger.Warnf("serveDNS: r.PackBuffer: %v", err)
+			bufpool.ReleasePackBuf(buf)
+			return nil
+		}
+		rRaw := bufpool.AcquireMsgBufAndCopy(rRawWithPackBuf)
+		bufpool.ReleasePackBuf(rRawWithPackBuf)
+		return rRaw
 	case <-timeoutTimer.C:
 		requestLogger.Warn("serveDNS: query failed: timeout")
 		return nil
 	}
 }
 
-func (d *dispatcher) queryLocal(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
-	if d.localECS != nil {
-		q = appendECSIfNotExist(q, d.localECS)
+func emptyResChan(c <-chan []byte) {
+	for {
+		select {
+		case rRaw := <-c:
+			if cap(rRaw) != 0 {
+				bufpool.ReleaseMsgBuf(rRaw)
+			}
+		default:
+			return
+		}
 	}
-	return d.localClient.Exchange(q, requestLogger)
 }
 
-//queryRemote WARNING: to save memory we may modify q directly.
-func (d *dispatcher) queryRemote(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
-	if d.remoteECS != nil {
-		q = appendECSIfNotExist(q, d.remoteECS)
+func (d *dispatcher) queryUpstream(ctx context.Context, q *dns.Msg, qRaw []byte, u upstream, ecs *dns.EDNS0_SUBNET, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
+	if ecs != nil {
+		q, appended := appendECSIfNotExist(q, d.localECS)
+		if appended {
+			buf := bufpool.AcquirePackBuf()
+			qRawCopy, err := q.PackBuffer(buf)
+			if err != nil {
+				bufpool.ReleasePackBuf(qRawCopy)
+				return nil, 0, err
+			}
+			defer bufpool.ReleasePackBuf(qRawCopy)
+			return u.Exchange(ctx, qRawCopy, requestLogger)
+		}
 	}
-	return d.remoteClient.Exchange(q, requestLogger)
+	return u.Exchange(ctx, qRaw, requestLogger)
 }
 
-// both q and ecs shouldn't be nil, the returned msg is a deep-copy if ecs is appended.
-func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
+func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
+	return d.queryUpstream(ctx, q, qRaw, d.localClient, d.localECS, requestLogger)
+}
+
+func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
+	return d.queryUpstream(ctx, q, qRaw, d.remoteClient, d.remoteECS, requestLogger)
+}
+
+// both q and ecs shouldn't be nil, the returned m is a deep-copy if ecs is appended.
+func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) (m *dns.Msg, appended bool) {
 	opt := q.IsEdns0()
 	if opt == nil { // we need a new opt
 		o := new(dns.OPT)
@@ -423,7 +466,7 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 		o.Option = []dns.EDNS0{ecs}
 		qCopy := q.Copy()
 		qCopy.Extra = append(qCopy.Extra, o)
-		return qCopy
+		return qCopy, true
 	}
 
 	hasECS := false // check if msg q already has a ECS section
@@ -438,14 +481,21 @@ func appendECSIfNotExist(q *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 		qCopy := q.Copy()
 		opt := qCopy.IsEdns0()
 		opt.Option = append(opt.Option, ecs)
-		return qCopy
+		return qCopy, true
 	}
 
-	return q
+	return q, false
 }
 
 // check if local result is ok to accept, res can be nil.
-func (d *dispatcher) acceptLocalRes(res *dns.Msg, requestLogger *logrus.Entry) (ok bool) {
+func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (ok bool) {
+
+	res := new(dns.Msg)
+	err := res.Unpack(rRaw)
+	if err != nil {
+		requestLogger.Debugf("acceptLocalRes: false, Unpack: %v", err)
+		return false
+	}
 
 	if res == nil {
 		requestLogger.Debug("acceptLocalRes: false: result is nil")
@@ -542,37 +592,6 @@ func caPath2Pool(ca string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("AppendCertsFromPEM: no certificate was successfully parsed in %s", ca)
 	}
 	return rootCAs, nil
-}
-
-func newClient(addr, prot, url string, rootCAs *x509.CertPool) (upstream, error) {
-	var client upstream
-	switch prot {
-	case "tcp", "udp", "":
-		client = &upstreamTCPUDP{
-			client: dns.Client{
-				Timeout:        queryTimeout,
-				UDPSize:        1480,
-				Net:            prot,
-				SingleInflight: false,
-			},
-			addr: addr,
-		}
-	case "doh":
-		tlsConf := &tls.Config{
-			// don't have to set servername here, fasthttp will do it itself.
-			RootCAs:            rootCAs,
-			ClientSessionCache: tls.NewLRUClientSessionCache(64),
-		}
-
-		if len(url) == 0 {
-			return nil, fmt.Errorf("protocol [%s] needs URL", prot)
-		}
-		client = dohclient.NewClient(url, addr, tlsConf, dns.MaxMsgSize, queryTimeout)
-	default:
-		return nil, fmt.Errorf("unsupport protocol: %s", prot)
-	}
-
-	return client, nil
 }
 
 type policyAction uint8

@@ -25,6 +25,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
+
+	// dev only
+	// "net/http"
+	// _ "net/http/pprof"
 
 	"github.com/sirupsen/logrus"
 )
@@ -39,26 +44,31 @@ var (
 	dirFollowExecutable = flag.Bool("dir2exe", false, "change working directory to the executable that started the current process")
 
 	debug = flag.Bool("debug", false, "more log")
-	quite = flag.Bool("quite", false, "no log")
+	quiet = flag.Bool("quiet", false, "no log")
 
 	cpu         = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 	showVersion = flag.Bool("v", false, "show verison")
 )
 
 func main() {
+
 	flag.Parse()
 	runtime.GOMAXPROCS(*cpu)
 
 	logger := logrus.New()
+	entry := logrus.NewEntry(logger)
+
 	switch {
-	case *quite:
+	case *quiet:
 		logger.SetLevel(logrus.ErrorLevel)
 	case *debug:
 		logger.SetLevel(logrus.DebugLevel)
+		// dev only
+		// go http.ListenAndServe("localhost:8080", nil)
+		go printStatus(entry, time.Second*5)
 	default:
 		logger.SetLevel(logrus.InfoLevel)
 	}
-	entry := logrus.NewEntry(logger)
 
 	// show version
 	if *showVersion {
@@ -119,7 +129,7 @@ func main() {
 
 	startServerExitWhenFailed := func(network string) {
 		entry.Infof("main: %s server started", network)
-		if err := d.ListenAndServe(network); err != nil {
+		if err := d.ListenAndServe(network, c.BindAddr, 1480); err != nil {
 			entry.Fatalf("main: %s server exited with err: %v", network, err)
 		} else {
 			entry.Infof("main: %s server exited", network)
@@ -145,4 +155,13 @@ func main() {
 	s := <-osSignals
 	entry.Infof("main: exiting: signal: %v", s)
 	os.Exit(0)
+}
+
+func printStatus(entry *logrus.Entry, d time.Duration) {
+	m := new(runtime.MemStats)
+	for {
+		time.Sleep(d)
+		runtime.ReadMemStats(m)
+		entry.Infof("HeapObjects: %d NumGC: %d PauseTotalNs: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs)
+	}
 }

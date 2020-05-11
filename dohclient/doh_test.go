@@ -35,13 +35,23 @@ func Test_dohClient(t *testing.T) {
 	c := NewClient("https://223.5.5.5/dns-query", "223.5.5.5:443", nil, dns.MaxMsgSize, time.Second*3)
 	q := new(dns.Msg)
 	q.SetQuestion("www.baidu.com.", dns.TypeA)
+	qRaw, err := q.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	fmt.Printf("First query\n")
 	start := time.Now()
-	r, rtt, err := c.Exchange(q, requestLogger)
+	rRaw, rtt, err := c.Exchange(qRaw, requestLogger)
 	if err != nil {
 		fmt.Println(err)
 		return
+	}
+
+	r := new(dns.Msg)
+	err = r.Unpack(rRaw)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	fmt.Printf("%s\n", r)
@@ -53,7 +63,7 @@ func Test_dohClient(t *testing.T) {
 		n := i
 		go func() {
 			defer wg.Done()
-			_, rtt, err := c.Exchange(q, requestLogger)
+			_, rtt, err := c.Exchange(qRaw, requestLogger)
 			if err != nil {
 				fmt.Println(err)
 				return

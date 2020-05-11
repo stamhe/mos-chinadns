@@ -19,12 +19,15 @@ package dohclient
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/IrineSistiana/mos-chinadns/utils"
 
 	"github.com/IrineSistiana/mos-chinadns/bufpool"
 
@@ -99,72 +102,53 @@ var bytesBufPool = sync.Pool{
 	},
 }
 
-func (c *DoHClient) Exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, time.Duration, error) {
+func (c *DoHClient) Exchange(ctx context.Context, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
 	t := time.Now()
-	r, err := c.exchange(q, requestLogger)
+	r, err := c.exchange(qRaw, requestLogger)
 	return r, time.Since(t), err
 }
 
-func (c *DoHClient) exchange(q *dns.Msg, requestLogger *logrus.Entry) (*dns.Msg, error) {
+func (c *DoHClient) exchange(qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, err error) {
+	if len(qRaw) < 12 {
+		return nil, dns.ErrShortRead // avoid panic when access msg id in m[0] and m[1]
+	}
+
+	qRawCopy := bufpool.AcquireMsgBuf(len(qRaw))
+	defer bufpool.ReleaseMsgBuf(qRawCopy)
+	copy(qRawCopy, qRaw)
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
 	// as "application/dns-message", SHOULD use a DNS ID of 0 in every DNS
 	// request.
 	// https://tools.ietf.org/html/rfc8484 4.1
-
-	qCopy := *q // just shadow copy, we only need to change q.Id
-	qCopy.Id = 0
-
-	buf := bufpool.AcquirePackBuf()
-	wireMsg, err := qCopy.PackBuffer(buf)
-
-	if err != nil {
-		bufpool.ReleasePackBuf(buf)
-		return nil, fmt.Errorf("PackBuffer: %w", err)
-	}
-	defer bufpool.ReleasePackBuf(wireMsg)
-
-	payload := string(wireMsg)
-	vr, err, shared := c.group.Do(payload, func() (interface{}, error) {
-		defer c.group.Forget(payload)
-		return c.doFasthttp(wireMsg, requestLogger)
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("group.Do doFasthttp: %w", err)
-	}
-	r := vr.(*dns.Msg)
-	// change r.Id back
-	if shared {
-		requestLogger.Debug("Exchange: shared payload detected")
-		rCopy := *r
-		rCopy.Id = q.Id
-		return &rCopy, nil
-	}
-	r.Id = q.Id
-	return r, nil
-}
-
-func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dns.Msg, error) {
-
-	urlBuf := bytesBufPool.Get().(*bytes.Buffer)
-	defer bytesBufPool.Put(urlBuf)
-	urlBuf.Grow(len(c.preparedURL) + base64.RawURLEncoding.EncodedLen(len(wireMsg)))
-	urlBuf.Reset()
-	urlBuf.Write(c.preparedURL)
+	oldID := utils.ExchangeMsgID(0, qRawCopy)
 
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484 6
-	encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuf)
-	_, _ = encoder.Write(wireMsg)
-	_ = encoder.Close()
+	// That's why we use base64.RawURLEncoding
+	urlLen := len(c.preparedURL) + base64.RawURLEncoding.EncodedLen(len(qRawCopy))
+	urlBytes := bufpool.AcquireMsgBuf(urlLen)
+	copy(urlBytes, c.preparedURL)
+	base64MsgStart := len(c.preparedURL)
+	base64.RawURLEncoding.Encode(urlBytes[base64MsgStart:], qRawCopy)
 
+	rRaw, err = c.doFasthttp(urlBytes, requestLogger)
+	if err != nil {
+		return nil, fmt.Errorf("group.Do doFasthttp: %w", err)
+	}
+
+	// change the id back
+	_ = utils.ExchangeMsgID(oldID, rRaw)
+	return rRaw, nil
+}
+
+func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) ([]byte, error) {
 	//Note: It is forbidden copying Request instances. Create new instances and use CopyTo instead.
 	//Request instance MUST NOT be used from concurrently running goroutines.
 	req := fasthttp.AcquireRequest()
 	defer fasthttp.ReleaseRequest(req)
-	req.SetRequestURIBytes(urlBuf.Bytes())
+	req.SetRequestURIBytes(url)
 	req.Header.SetMethod(fasthttp.MethodGet)
 	req.Header.SetCanonical(headerCanonicalKeyAccept, headerValueMediaType)
 	resp := fasthttp.AcquireResponse()
@@ -186,10 +170,12 @@ func (c *DoHClient) doFasthttp(wireMsg []byte, requestLogger *logrus.Entry) (*dn
 		return nil, fmt.Errorf("resp body is stream")
 	}
 
-	r := new(dns.Msg)
-	err := r.Unpack(resp.Body())
-	if err != nil {
-		return nil, fmt.Errorf("Unpack: %w", err)
+	body := resp.Body()
+	if len(body) < 12 {
+		return nil, dns.ErrShortRead
 	}
-	return r, nil
+
+	rRaw := bufpool.AcquireMsgBuf(len(body))
+	copy(rRaw, body)
+	return rRaw, nil
 }
