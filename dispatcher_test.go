@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,12 +71,14 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	if err != nil {
 		return nil, nil, err
 	}
+	localServerUDPConn.(*net.UDPConn).SetReadBuffer(64 * 1024)
 	c.LocalServerAddr = localServerUDPConn.LocalAddr().String()
 	ls := dns.Server{PacketConn: localServerUDPConn, Handler: &vServer{ip: lIP, latency: lLatency}}
 	go ls.ActivateAndServe()
 
 	//remote
 	remoteServerUDPConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	remoteServerUDPConn.(*net.UDPConn).SetReadBuffer(64 * 1024)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,7 +156,7 @@ const (
 )
 
 func Test_dispatcher_A_AAAA(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetLevel(logrus.WarnLevel)
 
 	test := func(testID, domain string, ll, rl int, lIP, rIP net.IP, want uint8, ipPo *ipPolicies, doPo *domainPolicies) {
 		d, closeServer, err := initTestDispatherAndServer(time.Duration(ll)*time.Millisecond, time.Duration(rl)*time.Millisecond, lIP, rIP, ipPo, doPo)
@@ -163,7 +167,7 @@ func Test_dispatcher_A_AAAA(t *testing.T) {
 
 		q := new(dns.Msg)
 		q.SetQuestion(dns.Fqdn(domain), dns.TypeA)
-		r := d.serveDNS(q)
+		r := d.serveDNS(q, d.entry)
 		if r == nil || r.Rcode != dns.RcodeSuccess {
 			t.Fatalf("[%s] invalid r", testID)
 		}
@@ -207,4 +211,88 @@ func Test_dispatcher_A_AAAA(t *testing.T) {
 
 	test("dp5", "test.cn", 0, 500, ip("0.0.0.1"), ip("0.0.0.2"), wantRemote, nil, genTestDomainPolicies("", "com", "cn"))
 
+}
+
+const (
+	benchFlow uint8 = iota
+	benchConcurrent
+	benchConcurrentCPUThread
+)
+
+func bench(testID string, mode uint8, b *testing.B, domain string, ll, rl int, lIP, rIP net.IP, ipPo *ipPolicies, doPo *domainPolicies) {
+	d, closeServer, err := initTestDispatherAndServer(time.Duration(ll)*time.Millisecond, time.Duration(rl)*time.Millisecond, lIP, rIP, ipPo, doPo)
+	if err != nil {
+		b.Fatalf("[%s] init dispatcher, %v", testID, err)
+	}
+	defer closeServer()
+
+	b.ResetTimer()
+	switch mode {
+	case benchFlow:
+		for i := 0; i < b.N; i++ {
+			r := d.serveDNS(new(dns.Msg).SetQuestion(dns.Fqdn(domain), dns.TypeA), d.entry)
+			if r == nil {
+				b.Fatal("err")
+			}
+		}
+	case benchConcurrent:
+		wg := sync.WaitGroup{}
+		var ec int32
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			for j := 0; j < 1000; j++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					q := new(dns.Msg)
+					q.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+					r := d.serveDNS(q, d.entry)
+					if r == nil {
+						atomic.AddInt32(&ec, 1)
+						// panic("err")
+					}
+				}()
+			}
+			wg.Wait()
+		}
+		if ec > 0 {
+			b.Fatal(fmt.Sprintf("err: %d\n", ec))
+		}
+	case benchConcurrentCPUThread:
+		var ec int32
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				q := new(dns.Msg)
+				q.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+				r := d.serveDNS(q, d.entry)
+				if r == nil {
+					atomic.AddInt32(&ec, 1)
+				}
+			}
+		})
+		if ec > 0 {
+			b.Fatal(fmt.Sprintf("err: %d\n", ec))
+		}
+	}
+}
+
+func Benchmark_dispatcher_flow(b *testing.B) {
+	logrus.SetLevel(logrus.WarnLevel)
+	b.ReportAllocs()
+
+	bench("dp", benchFlow, b, "test.com", 0, 0, ip("0.0.0.1"), ip("0.0.0.2"), nil, genTestDomainPolicies("", "com", "cn"))
+}
+
+func Benchmark_dispatcher_concurrent(b *testing.B) {
+	logrus.SetLevel(logrus.WarnLevel)
+	b.ReportAllocs()
+
+	bench("dp", benchConcurrent, b, "test.com", 0, 0, ip("0.0.0.1"), ip("0.0.0.2"), nil, genTestDomainPolicies("", "com", "cn"))
+}
+
+func Benchmark_dispatcher_concurrent_cpu_thread(b *testing.B) {
+	logrus.SetLevel(logrus.WarnLevel)
+	b.ReportAllocs()
+
+	bench("dp", benchConcurrentCPUThread, b, "test.com", 0, 0, ip("0.0.0.1"), ip("0.0.0.2"), nil, genTestDomainPolicies("", "com", "cn"))
 }
