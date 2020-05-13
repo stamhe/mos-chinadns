@@ -155,6 +155,7 @@ func (u *upstreamUDP) exchange(ctx context.Context, qRaw []byte) (rRaw []byte, e
 	}
 
 	buf := bufpool.AcquireMsgBuf(u.maxUDPSize)
+	defer bufpool.ReleaseMsgBuf(buf)
 read:
 	n, err := c.Read(buf)
 	if err != nil {
@@ -162,24 +163,21 @@ read:
 			// err caused by cancelled ctx, it's ok to reuse the connection
 			once.Do(func() {})
 			u.cp.put(c)
-			bufpool.ReleaseMsgBuf(buf)
 			return nil, err
 		}
 		c.Close()
-		bufpool.ReleaseMsgBuf(buf)
 		return nil, err
 	}
 
 	if n < 12 {
 		err = dns.ErrShortRead
 		c.Close()
-		bufpool.ReleaseMsgBuf(buf)
 		return nil, err
 	}
 
-	rRaw = buf[:n]
-	if utils.GetMsgID(rRaw) != utils.GetMsgID(qRaw) && !isNewConn {
-		// this connection is reused, rRaw might be the reply
+	data := buf[:n]
+	if utils.GetMsgID(data) != utils.GetMsgID(qRaw) && !isNewConn {
+		// this connection is reused, data might be the reply
 		// of last qRaw, not this qRaw.
 		// try to read again
 		goto read
@@ -187,6 +185,7 @@ read:
 
 	once.Do(func() {})
 	u.cp.put(c)
+	rRaw = bufpool.AcquireMsgBufAndCopy(data)
 	return rRaw, nil
 }
 

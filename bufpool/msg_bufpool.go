@@ -24,7 +24,9 @@ import (
 	"sync"
 )
 
-var defaultAllocator *Allocator = NewAllocator()
+var (
+	defaultAllocator = NewAllocator()
+)
 
 type Allocator struct {
 	buffers []sync.Pool
@@ -62,10 +64,14 @@ func ReleaseMsgBuf(buf []byte) {
 	defaultAllocator.Put(buf)
 }
 
+func MsgBufCanShrink(buf []byte) (ok bool) {
+	return cap(buf)>>1 >= len(buf)
+}
+
 // Get a []byte from pool with most appropriate cap
 func (alloc *Allocator) Get(size int) []byte {
 	if size <= 0 || size > 65536 {
-		return nil
+		panic("unexpected size")
 	}
 
 	bits := msb(size)

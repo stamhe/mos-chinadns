@@ -67,6 +67,7 @@ func (d *dispatcher) ListenAndServe(network, addr string, maxUDPSize int) error 
 					q := new(dns.Msg)
 					err = q.Unpack(qRaw)
 					if err != nil {
+						bufpool.ReleaseMsgBuf(qRaw)
 						return
 					}
 
@@ -100,9 +101,10 @@ func (d *dispatcher) ListenAndServe(network, addr string, maxUDPSize int) error 
 			return err
 		}
 
+		// only use one large buf to read
+		readBuf := bufpool.AcquireMsgBuf(maxUDPSize)
 		for {
-			buf := bufpool.AcquireMsgBuf(maxUDPSize)
-			n, from, err := l.ReadFrom(buf)
+			n, from, err := l.ReadFrom(readBuf)
 
 			if err != nil {
 				er, ok := err.(net.Error)
@@ -118,21 +120,20 @@ func (d *dispatcher) ListenAndServe(network, addr string, maxUDPSize int) error 
 			// msg small than headerSize
 			// do nothing, avoid ddos
 			if n < 12 {
-				bufpool.ReleaseMsgBuf(buf)
 				continue
 			}
 
-			qRaw := buf[:n]
+			data := readBuf[:n]
 			q := new(dns.Msg)
-			err = q.Unpack(qRaw)
+			err = q.Unpack(data)
 			if err != nil {
-				bufpool.ReleaseMsgBuf(buf)
 				continue
 			}
 
+			// copy it to a new and maybe smaller buf for the new goroutine
+			qRaw := bufpool.AcquireMsgBufAndCopy(data)
 			go func() {
-				defer bufpool.ReleaseMsgBuf(buf)
-
+				defer bufpool.ReleaseMsgBuf(qRaw)
 				requestLogger := d.entry.WithFields(logrus.Fields{
 					"fromUDP":  from.String(),
 					"id":       q.Id,
