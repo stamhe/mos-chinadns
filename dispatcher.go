@@ -121,6 +121,8 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		}
 		d.localClient = client
 		d.localDenyUnusualType = conf.LocalDenyUnusualType
+		d.localDenyResultWithoutIP = conf.LocalDenyResultsWithoutIP
+		d.localCheckCNAME = conf.LocalCheckCNAME
 	}
 
 	if len(conf.RemoteServerAddr) != 0 {
@@ -130,11 +132,10 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		}
 		d.remoteClient = client
 		d.remoteServerDelayStart = time.Millisecond * time.Duration(conf.RemoteServerDelayStart)
+		if d.remoteServerDelayStart >= queryTimeout {
+			return nil, fmt.Errorf("init remote server: remoteServerDelayStart is longer than globle query timeout %s", queryTimeout)
+		}
 	}
-
-	d.localDenyUnusualType = conf.LocalDenyUnusualType
-	d.localDenyResultWithoutIP = conf.LocalDenyResultsWithoutIP
-	d.localCheckCNAME = conf.LocalCheckCNAME
 
 	if len(conf.LocalIPPolicies) != 0 {
 		args, err := convPoliciesStr(conf.LocalIPPolicies, convIPPolicyActionStr)
@@ -248,7 +249,7 @@ func (d *dispatcher) serveDNS(q *dns.Msg, entry *logrus.Entry) (r *dns.Msg) {
 func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) []byte {
 
 	// if qRaw is nil, we will pack the q
-	// and release it buffer after func returned
+	// and release its buffer after func returned
 	if qRaw == nil {
 		buf := bufpool.AcquirePackBuf()
 		var err error
@@ -294,6 +295,9 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 		}
 	}
 
+	timeoutTimer := getTimer(queryTimeout)
+	defer releaseTimer(timeoutTimer)
+
 	resChan := make(chan []byte, 1)
 
 	serverFailedNotify := make(chan struct{}, 0)
@@ -321,8 +325,8 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 			requestLogger.Debugf("serveDNS: get reply from local, rtt: %dms", rtt.Milliseconds())
 			if !forceLocal && !d.acceptLocalRes(rRaw, requestLogger) {
 				requestLogger.Debug("serveDNS: local result denied")
-				close(localServerFailed)
 				bufpool.ReleaseMsgBuf(rRaw)
+				close(localServerFailed)
 				return
 			}
 
@@ -338,21 +342,21 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 
 	// remote
 	if doRemote {
+		if doLocal && d.remoteServerDelayStart > 0 {
+			delayTimer := getTimer(d.remoteServerDelayStart)
+			select {
+			case <-localServerDone:
+				releaseTimer(delayTimer)
+				goto skipRemote
+			case <-localServerFailed:
+			case <-delayTimer.C:
+			}
+			releaseTimer(delayTimer)
+		}
+
 		upstreamWG.Add(1)
 		go func() {
 			defer upstreamWG.Done()
-
-			if doLocal && d.remoteServerDelayStart > 0 {
-				timer := getTimer(d.remoteServerDelayStart)
-				select {
-				case <-localServerDone:
-					releaseTimer(timer)
-					return
-				case <-localServerFailed:
-				case <-timer.C:
-				}
-				releaseTimer(timer)
-			}
 
 			requestLogger.Debug("serveDNS: query remote server")
 			rRaw, rtt, err := d.queryRemote(ctx, q, qRaw, requestLogger)
@@ -371,6 +375,7 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 			}
 		}()
 	}
+skipRemote:
 
 	// watcher
 	serveDNSWG := sync.WaitGroup{}
@@ -381,7 +386,9 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 		// there has a very small probability that
 		// below select{} will select case:<-serverFailedNotify
 		// if both case1 and case2 are in ready state.
-		// dont close serverFailedNotify if resChan is ready
+		// dont close serverFailedNotify if resChan is ready.
+
+		// upstreamWG is done, no one is writing to resChan right now.
 		if len(resChan) == 0 {
 			close(serverFailedNotify)
 		}
@@ -389,9 +396,6 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 		serveDNSWG.Wait()
 		emptyResChan(resChan) // some buf might still be traped in resChan
 	}()
-
-	timeoutTimer := getTimer(queryTimeout)
-	defer releaseTimer(timeoutTimer)
 
 	select {
 	case rRaw := <-resChan:
