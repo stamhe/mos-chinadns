@@ -20,18 +20,18 @@ envs = [
     [['GOOS', 'linux'], ['GOARCH', 'arm'], ['GOARM', '7']],
     [['GOOS', 'linux'], ['GOARCH', 'arm64']],
 
-    [['GOOS', 'linux'], ['GOARCH', 'mips'], ['GOMIPS', 'hardfloat']],
-    [['GOOS', 'linux'], ['GOARCH', 'mips'], ['GOMIPS', 'softfloat']],
-    [['GOOS', 'linux'], ['GOARCH', 'mipsle'], ['GOMIPS', 'hardfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips'], ['GOMIPS', 'hardfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips'], ['GOMIPS', 'softfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mipsle'], ['GOMIPS', 'hardfloat']],
     [['GOOS', 'linux'], ['GOARCH', 'mipsle'], ['GOMIPS', 'softfloat']],
 
-    [['GOOS', 'linux'], ['GOARCH', 'mips64'], ['GOMIPS64', 'hardfloat']],
-    [['GOOS', 'linux'], ['GOARCH', 'mips64'], ['GOMIPS64', 'softfloat']],
-    [['GOOS', 'linux'], ['GOARCH', 'mips64le'], ['GOMIPS64', 'hardfloat']],
-    [['GOOS', 'linux'], ['GOARCH', 'mips64le'], ['GOMIPS64', 'softfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips64'], ['GOMIPS64', 'hardfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips64'], ['GOMIPS64', 'softfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips64le'], ['GOMIPS64', 'hardfloat']],
+    # [['GOOS', 'linux'], ['GOARCH', 'mips64le'], ['GOMIPS64', 'softfloat']],
 
     # [['GOOS', 'freebsd'], ['GOARCH', '386']],
-    [['GOOS', 'freebsd'], ['GOARCH', 'amd64']],
+    # [['GOOS', 'freebsd'], ['GOARCH', 'amd64']],
 
     # [['GOOS', 'windows'], ['GOARCH', '386']],
     [['GOOS', 'windows'], ['GOARCH', 'amd64']],
@@ -39,9 +39,6 @@ envs = [
 
 
 def init_release_resources():
-    subprocess.check_call(f'go run ./ -gen config-example.json',
-                          shell=True, env=os.environ.copy())
-
     if len(sys.argv) > 1 and '-list' in sys.argv[1:]:
         from scripts.update_chn_ip_domain import update_domain, update_ip
         update_domain()
@@ -89,7 +86,7 @@ def go_build():
                                  compresslevel=5) as zf:
                 zf.write(bin_filename)
                 zf.write('README.md')
-                zf.write('config-example.json')
+                zf.write('config-example.yaml')
                 zf.write('chn.list')
                 zf.write('chn_domain.list')
                 zf.write('LICENSE')
