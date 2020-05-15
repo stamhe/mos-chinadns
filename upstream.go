@@ -43,7 +43,7 @@ type upstreamTCP struct {
 }
 
 type upstreamUDP struct {
-	addr       *net.UDPAddr
+	addr       string
 	maxUDPSize int
 	cp         *udpConnPool
 }
@@ -56,12 +56,8 @@ func newUpstream(addr, prot, url string, rootCAs *x509.CertPool) (upstream, erro
 			addr: addr,
 		}
 	case "udp", "":
-		udpAddr, err := net.ResolveUDPAddr("udp", addr)
-		if err != nil {
-			return nil, err
-		}
 		client = &upstreamUDP{
-			addr:       udpAddr,
+			addr:       addr,
 			maxUDPSize: 1480,
 			cp:         newUDPConnPool(0xffff, time.Second*10, time.Second*10),
 		}
@@ -132,7 +128,8 @@ func (u *upstreamUDP) exchange(ctx context.Context, qRaw []byte) (rRaw []byte, e
 	var isNewConn bool
 	c := u.cp.get()
 	if c == nil {
-		c, err = net.DialUDP("udp", nil, u.addr)
+		d := net.Dialer{}
+		c, err = d.DialContext(ctx, "udp", u.addr)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +196,7 @@ type udpConnPool struct {
 }
 
 type udpConnPoolElem struct {
-	*net.UDPConn
+	net.Conn
 	lastUsed time.Time
 }
 
@@ -229,8 +226,8 @@ func (p *udpConnPool) runCleanner() {
 			if time.Since(p.pool[i].lastUsed) < p.ttl {
 				res = append(res, p.pool[i])
 			} else { // expired, release the resources
-				p.pool[i].UDPConn.Close()
-				p.pool[i].UDPConn = nil
+				p.pool[i].Conn.Close()
+				p.pool[i].Conn = nil
 			}
 		}
 		p.pool = res
@@ -243,23 +240,23 @@ func (p *udpConnPool) runCleanner() {
 		for i := range p.pool {
 			// forcely remove half conns first
 			if i < mid {
-				p.pool[i].UDPConn.Close()
-				p.pool[i].UDPConn = nil
+				p.pool[i].Conn.Close()
+				p.pool[i].Conn = nil
 			}
 
 			//then remove expired conns
 			if time.Since(p.pool[i].lastUsed) < p.ttl {
 				res = append(res, p.pool[i])
 			} else {
-				p.pool[i].UDPConn.Close()
-				p.pool[i].UDPConn = nil
+				p.pool[i].Conn.Close()
+				p.pool[i].Conn = nil
 			}
 		}
 		p.pool = res
 	}
 }
 
-func (p *udpConnPool) put(c *net.UDPConn) {
+func (p *udpConnPool) put(c net.Conn) {
 	if p == nil && p.maxSize <= 0 {
 		return
 	}
@@ -272,11 +269,11 @@ func (p *udpConnPool) put(c *net.UDPConn) {
 	if len(p.pool) >= p.maxSize {
 		c.Close() // pool is full, drop it
 	} else {
-		p.pool = append(p.pool, udpConnPoolElem{UDPConn: c, lastUsed: time.Now()})
+		p.pool = append(p.pool, udpConnPoolElem{Conn: c, lastUsed: time.Now()})
 	}
 }
 
-func (p *udpConnPool) get() (c *net.UDPConn) {
+func (p *udpConnPool) get() (c net.Conn) {
 	if p == nil && p.maxSize <= 0 {
 		return nil
 	}
@@ -291,10 +288,10 @@ func (p *udpConnPool) get() (c *net.UDPConn) {
 		p.pool = p.pool[:len(p.pool)-1]
 
 		if time.Since(e.lastUsed) > p.ttl {
-			e.UDPConn.Close() // expired
+			e.Conn.Close() // expired
 			return nil
 		}
-		return e.UDPConn
+		return e.Conn
 	}
 	return nil
 }
