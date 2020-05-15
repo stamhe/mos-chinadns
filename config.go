@@ -18,52 +18,66 @@
 package main
 
 import (
-	"encoding/json"
 	"io/ioutil"
 	"os"
+
+	"gopkg.in/yaml.v2"
 )
 
 // Config is config
 type Config struct {
-	BindAddr            string `json:"bind_addr"`
-	BindProtocol        string `json:"bind_protocol"`
-	LocalServerAddr     string `json:"local_server_addr"`
-	LocalServerProtocol string `json:"local_server_protocol"`
-	LocalServerURL      string `json:"local_server_url"`
+	Bind struct {
+		Addr     string `yaml:"addr"`
+		Protocol string `yaml:"protocol"`
+	} `yaml:"bind"`
 
-	LocalDenyUnusualType      bool `json:"local_deny_unusual_type"`
-	LocalDenyResultsWithoutIP bool `json:"local_deny_results_without_ip"`
-	LocalCheckCNAME           bool `json:"local_check_cname"`
+	Server struct {
+		Local struct {
+			Addr     string `yaml:"addr"`
+			Protocol string `yaml:"protocol"`
+			URL      string `yaml:"url"`
 
-	LocalIPPolicies     string `json:"local_ip_policies"`
-	LocalDomainPolicies string `json:"local_domain_policies"`
+			DenyUnusualTypes     bool `yaml:"deny_unusual_types"`
+			DenyResultsWithoutIP bool `yaml:"deny_results_without_ip"`
+			CheckCNAME           bool `yaml:"check_cname"`
 
-	RemoteServerAddr       string `json:"remote_server_addr"`
-	RemoteServerProtocol   string `json:"remote_server_protocol"`
-	RemoteServerURL        string `json:"remote_server_url"`
-	RemoteServerDelayStart int    `json:"remote_server_delay_start"`
+			IPPolicies     string `yaml:"ip_policies"`
+			DomainPolicies string `yaml:"domain_policies"`
+		} `yaml:"local"`
 
-	LocalECS  string `json:"local_ecs"`
-	RemoteECS string `json:"remote_ecs"`
+		Remote struct {
+			Addr       string `yaml:"addr"`
+			Protocol   string `yaml:"protocol"`
+			URL        string `yaml:"url"`
+			DelayStart int    `yaml:"delay_start"`
+		} `yaml:"remote"`
+	} `yaml:"server"`
 
-	TLSPEMCA string `json:"tls_pem_ca"`
+	ECS struct {
+		Local  string `yaml:"local"`
+		Remote string `yaml:"remote"`
+	} `yaml:"ecs"`
+
+	CA struct {
+		Path string `yaml:"path"`
+	} `yaml:"ca"`
 }
 
-func loadJSONConfig(configFile string) (*Config, error) {
+func loadConfig(configFile string) (*Config, error) {
 	c := new(Config)
 	b, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := json.Unmarshal(b, c); err != nil {
+	if err := yaml.Unmarshal(b, c); err != nil {
 		return nil, err
 	}
 
 	return c, nil
 }
 
-func genJSONConfig(configFile string) error {
+func genConfig(configFile string) error {
 	c := new(Config)
 
 	f, err := os.Create(configFile)
@@ -72,7 +86,7 @@ func genJSONConfig(configFile string) error {
 	}
 	defer f.Close()
 
-	b, err := json.MarshalIndent(c, "", "\t")
+	b, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}

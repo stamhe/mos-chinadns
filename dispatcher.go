@@ -44,20 +44,25 @@ var (
 )
 
 type dispatcher struct {
-	bindAddr                 string
-	localDenyUnusualType     bool
-	localDenyResultWithoutIP bool
-	localCheckCNAME          bool
-	remoteServerDelayStart   time.Duration
+	local struct {
+		client upstream
 
-	localClient  upstream
-	remoteClient upstream
+		denyUnusualTypes    bool
+		denyResultWithoutIP bool
+		checkCNAME          bool
+		ipPolicies          *ipPolicies
+		domainPolicies      *domainPolicies
+	}
 
-	localIPPolicies     *ipPolicies
-	localDomainPolicies *domainPolicies
+	remote struct {
+		client     upstream
+		delayStart time.Duration
+	}
 
-	localECS  *dns.EDNS0_SUBNET
-	remoteECS *dns.EDNS0_SUBNET
+	ecs struct {
+		local  *dns.EDNS0_SUBNET
+		remote *dns.EDNS0_SUBNET
+	}
 
 	entry *logrus.Entry
 }
@@ -95,50 +100,45 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	d := new(dispatcher)
 	d.entry = entry
 
-	if len(conf.BindAddr) == 0 {
-		return nil, errors.New("missing args: bind address")
-	}
-	d.bindAddr = conf.BindAddr
-
 	var rootCAs *x509.CertPool
 	var err error
-	if len(conf.TLSPEMCA) != 0 {
-		rootCAs, err = caPath2Pool(conf.TLSPEMCA)
+	if len(conf.CA.Path) != 0 {
+		rootCAs, err = caPath2Pool(conf.CA.Path)
 		if err != nil {
 			return nil, fmt.Errorf("caPath2Pool: %w", err)
 		}
 		d.entry.Info("initDispatcher: CA cert loaded")
 	}
 
-	if len(conf.LocalServerAddr) == 0 && len(conf.RemoteServerAddr) == 0 {
+	if len(conf.Server.Local.Addr) == 0 && len(conf.Server.Remote.Addr) == 0 {
 		return nil, errors.New("missing args: both local server and remote server are empty")
 	}
 
-	if len(conf.LocalServerAddr) != 0 {
-		client, err := newUpstream(conf.LocalServerAddr, conf.LocalServerProtocol, conf.LocalServerURL, rootCAs)
+	if len(conf.Server.Local.Addr) != 0 {
+		client, err := newUpstream(conf.Server.Local.Addr, conf.Server.Local.Protocol, conf.Server.Local.URL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init local server: %w", err)
 		}
-		d.localClient = client
-		d.localDenyUnusualType = conf.LocalDenyUnusualType
-		d.localDenyResultWithoutIP = conf.LocalDenyResultsWithoutIP
-		d.localCheckCNAME = conf.LocalCheckCNAME
+		d.local.client = client
+		d.local.denyUnusualTypes = conf.Server.Local.DenyUnusualTypes
+		d.local.denyResultWithoutIP = conf.Server.Local.DenyResultsWithoutIP
+		d.local.checkCNAME = conf.Server.Local.CheckCNAME
 	}
 
-	if len(conf.RemoteServerAddr) != 0 {
-		client, err := newUpstream(conf.RemoteServerAddr, conf.RemoteServerProtocol, conf.RemoteServerURL, rootCAs)
+	if len(conf.Server.Remote.Addr) != 0 {
+		client, err := newUpstream(conf.Server.Remote.Addr, conf.Server.Remote.Protocol, conf.Server.Remote.URL, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init remote server: %w", err)
 		}
-		d.remoteClient = client
-		d.remoteServerDelayStart = time.Millisecond * time.Duration(conf.RemoteServerDelayStart)
-		if d.remoteServerDelayStart >= queryTimeout {
+		d.remote.client = client
+		d.remote.delayStart = time.Millisecond * time.Duration(conf.Server.Remote.DelayStart)
+		if d.remote.delayStart >= queryTimeout {
 			return nil, fmt.Errorf("init remote server: remoteServerDelayStart is longer than globle query timeout %s", queryTimeout)
 		}
 	}
 
-	if len(conf.LocalIPPolicies) != 0 {
-		args, err := convPoliciesStr(conf.LocalIPPolicies, convIPPolicyActionStr)
+	if len(conf.Server.Local.IPPolicies) != 0 {
+		args, err := convPoliciesStr(conf.Server.Local.IPPolicies, convIPPolicyActionStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ip policies string, %w", err)
 		}
@@ -146,11 +146,11 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("loading ip policies, %w", err)
 		}
-		d.localIPPolicies = p
+		d.local.ipPolicies = p
 	}
 
-	if len(conf.LocalDomainPolicies) != 0 {
-		args, err := convPoliciesStr(conf.LocalDomainPolicies, convDomainPolicyActionStr)
+	if len(conf.Server.Local.DomainPolicies) != 0 {
+		args, err := convPoliciesStr(conf.Server.Local.DomainPolicies, convDomainPolicyActionStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid domain policies string, %w", err)
 		}
@@ -158,24 +158,24 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("loading domain policies, %w", err)
 		}
-		d.localDomainPolicies = p
+		d.local.domainPolicies = p
 	}
 
-	if len(conf.LocalECS) != 0 {
-		ecs, err := newEDNSSubnet(conf.LocalECS)
+	if len(conf.ECS.Local) != 0 {
+		ecs, err := newEDNSSubnet(conf.ECS.Local)
 		if err != nil {
 			return nil, fmt.Errorf("parsing local ECS subnet, %w", err)
 		}
-		d.localECS = ecs
+		d.ecs.local = ecs
 		d.entry.Info("initDispatcher: local server ECS enabled")
 	}
 
-	if len(conf.RemoteECS) != 0 {
-		ecs, err := newEDNSSubnet(conf.RemoteECS)
+	if len(conf.ECS.Remote) != 0 {
+		ecs, err := newEDNSSubnet(conf.ECS.Remote)
 		if err != nil {
 			return nil, fmt.Errorf("parsing remote ECS subnet, %w", err)
 		}
-		d.remoteECS = ecs
+		d.ecs.remote = ecs
 		d.entry.Info("initDispatcher: remote server ECS enabled")
 	}
 
@@ -266,13 +266,13 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 	defer cancel()
 
 	var doLocal, doRemote, forceLocal bool
-	if d.localClient != nil {
+	if d.local.client != nil {
 		doLocal = true
 		if isUnusualType(q) {
-			doLocal = !d.localDenyUnusualType
+			doLocal = !d.local.denyUnusualTypes
 		} else {
-			if d.localDomainPolicies != nil {
-				p := d.localDomainPolicies.check(q.Question[0].Name)
+			if d.local.domainPolicies != nil {
+				p := d.local.domainPolicies.check(q.Question[0].Name)
 				switch p {
 				case policyActionForce:
 					doLocal = true
@@ -287,7 +287,7 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 		}
 	}
 
-	if d.remoteClient != nil {
+	if d.remote.client != nil {
 		doRemote = true
 		switch {
 		case forceLocal:
@@ -342,8 +342,8 @@ func (d *dispatcher) serveRawDNS(q *dns.Msg, qRaw []byte, requestLogger *logrus.
 
 	// remote
 	if doRemote {
-		if doLocal && d.remoteServerDelayStart > 0 {
-			delayTimer := getTimer(d.remoteServerDelayStart)
+		if doLocal && d.remote.delayStart > 0 {
+			delayTimer := getTimer(d.remote.delayStart)
 			select {
 			case <-localServerDone:
 				releaseTimer(delayTimer)
@@ -436,7 +436,7 @@ func emptyResChan(c <-chan []byte) {
 
 func (d *dispatcher) queryUpstream(ctx context.Context, q *dns.Msg, qRaw []byte, u upstream, ecs *dns.EDNS0_SUBNET, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
 	if ecs != nil {
-		q, appended := appendECSIfNotExist(q, d.localECS)
+		q, appended := appendECSIfNotExist(q, d.ecs.local)
 		if appended {
 			buf := bufpool.AcquirePackBuf()
 			qRawCopy, err := q.PackBuffer(buf)
@@ -452,11 +452,11 @@ func (d *dispatcher) queryUpstream(ctx context.Context, q *dns.Msg, qRaw []byte,
 }
 
 func (d *dispatcher) queryLocal(ctx context.Context, q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
-	return d.queryUpstream(ctx, q, qRaw, d.localClient, d.localECS, requestLogger)
+	return d.queryUpstream(ctx, q, qRaw, d.local.client, d.ecs.local, requestLogger)
 }
 
 func (d *dispatcher) queryRemote(ctx context.Context, q *dns.Msg, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
-	return d.queryUpstream(ctx, q, qRaw, d.remoteClient, d.remoteECS, requestLogger)
+	return d.queryUpstream(ctx, q, qRaw, d.remote.client, d.ecs.remote, requestLogger)
 }
 
 // both q and ecs shouldn't be nil, the returned m is a deep-copy if ecs is appended.
@@ -512,7 +512,7 @@ func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (o
 	}
 
 	if isUnusualType(res) {
-		if d.localDenyUnusualType {
+		if d.local.denyUnusualTypes {
 			requestLogger.Debug("acceptLocalRes: false: unusual type")
 			return false
 		}
@@ -522,10 +522,10 @@ func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (o
 	}
 
 	// check CNAME
-	if d.localDomainPolicies != nil && d.localCheckCNAME == true {
+	if d.local.domainPolicies != nil && d.local.checkCNAME == true {
 		for i := range res.Answer {
 			if cname, ok := res.Answer[i].(*dns.CNAME); ok {
-				p := d.localDomainPolicies.check(cname.Target)
+				p := d.local.domainPolicies.check(cname.Target)
 				switch p {
 				case policyActionAccept, policyActionForce:
 					requestLogger.Debug("acceptLocalRes: true: matched by CNAME")
@@ -542,7 +542,7 @@ func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (o
 
 	// check ip
 	var hasIP bool
-	if d.localIPPolicies != nil {
+	if d.local.ipPolicies != nil {
 		for i := range res.Answer {
 			var ip netlist.IPv6
 			var err error
@@ -562,7 +562,7 @@ func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (o
 				continue
 			}
 
-			p := d.localIPPolicies.check(ip)
+			p := d.local.ipPolicies.check(ip)
 			switch p {
 			case policyActionAccept:
 				requestLogger.Debug("acceptLocalRes: true: matched by ip")
@@ -576,7 +576,7 @@ func (d *dispatcher) acceptLocalRes(rRaw []byte, requestLogger *logrus.Entry) (o
 		}
 	}
 
-	if d.localDenyResultWithoutIP && !hasIP {
+	if d.local.denyResultWithoutIP && !hasIP {
 		requestLogger.Debug("acceptLocalRes: false: no ip RR")
 		return false
 	}

@@ -37,7 +37,7 @@ import (
 var (
 	version = "dev/unknown"
 
-	configPath  = flag.String("c", "config.json", "[path] load config from file")
+	configPath  = flag.String("c", "config.yaml", "[path] load config from file")
 	genConfigTo = flag.String("gen", "", "[path] generate a config template here")
 
 	dir                 = flag.String("dir", "", "[path] change working directory to here")
@@ -82,7 +82,7 @@ func main() {
 
 	//gen config
 	if len(*genConfigTo) != 0 {
-		err := genJSONConfig(*genConfigTo)
+		err := genConfig(*genConfigTo)
 		if err != nil {
 			entry.Errorf("main: can not generate config template, %v", err)
 		} else {
@@ -117,7 +117,7 @@ func main() {
 		entry.Fatal("main: need a config file")
 	}
 
-	c, err := loadJSONConfig(*configPath)
+	c, err := loadConfig(*configPath)
 	if err != nil {
 		entry.Fatalf("main: can not load config file, %v", err)
 	}
@@ -129,7 +129,7 @@ func main() {
 
 	startServerExitWhenFailed := func(network string) {
 		entry.Infof("main: %s server started", network)
-		if err := d.ListenAndServe(network, c.BindAddr, 1480); err != nil {
+		if err := d.ListenAndServe(network, c.Bind.Addr, 1480); err != nil {
 			entry.Fatalf("main: %s server exited with err: %v", network, err)
 		} else {
 			entry.Infof("main: %s server exited", network)
@@ -137,7 +137,7 @@ func main() {
 		}
 	}
 
-	switch c.BindProtocol {
+	switch c.Bind.Protocol {
 	case "all", "":
 		go startServerExitWhenFailed("tcp")
 		go startServerExitWhenFailed("udp")
@@ -146,7 +146,7 @@ func main() {
 	case "tcp":
 		go startServerExitWhenFailed("tcp")
 	default:
-		entry.Fatalf("main: unknown bind protocol: %s", c.BindProtocol)
+		entry.Fatalf("main: unknown bind protocol: %s", c.Bind.Protocol)
 	}
 
 	//wait signals
@@ -162,6 +162,6 @@ func printStatus(entry *logrus.Entry, d time.Duration) {
 	for {
 		time.Sleep(d)
 		runtime.ReadMemStats(m)
-		entry.Infof("HeapObjects: %d NumGC: %d PauseTotalNs: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs)
+		entry.Infof("HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
 	}
 }

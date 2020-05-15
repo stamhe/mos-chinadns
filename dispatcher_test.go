@@ -72,7 +72,7 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 		return nil, nil, err
 	}
 	localServerUDPConn.(*net.UDPConn).SetReadBuffer(64 * 1024)
-	c.LocalServerAddr = localServerUDPConn.LocalAddr().String()
+	c.Server.Local.Addr = localServerUDPConn.LocalAddr().String()
 	ls := dns.Server{PacketConn: localServerUDPConn, Handler: &vServer{ip: lIP, latency: lLatency}}
 	go ls.ActivateAndServe()
 
@@ -82,18 +82,21 @@ func initTestDispatherAndServer(lLatency, rLatency time.Duration, lIP, rIP net.I
 	if err != nil {
 		return nil, nil, err
 	}
-	c.RemoteServerAddr = remoteServerUDPConn.LocalAddr().String()
+	c.Server.Remote.Addr = remoteServerUDPConn.LocalAddr().String()
 	rs := dns.Server{PacketConn: remoteServerUDPConn, Handler: &vServer{ip: rIP, latency: rLatency}}
 	go rs.ActivateAndServe()
 
-	c.BindAddr = "127.0.0.1:0"
+	c.ECS.Local = "1.2.3.0/24"
+	c.ECS.Remote = "4.3.2.0/24"
+
+	c.Bind.Addr = "127.0.0.1:0"
 	d, err := initDispatcher(&c, logrus.NewEntry(logrus.StandardLogger()))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	d.localIPPolicies = ipPo
-	d.localDomainPolicies = doPo
+	d.local.ipPolicies = ipPo
+	d.local.domainPolicies = doPo
 
 	return d, func() {
 		ls.Shutdown()
