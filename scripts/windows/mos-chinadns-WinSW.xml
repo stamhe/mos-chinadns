@@ -1,0 +1,27 @@
+<!--
+	有关配置选项的更多信息：https://github.com/kohsuke/winsw/blob/master/doc/xmlConfigFile.md
+-->
+
+<service>
+	<id>mos-chinadns</id>
+	<name>mos-chinadns (powered by WinSW)</name>
+	<description>高性能DNS分流器兼DoH客户端</description>
+
+	<!-- 
+		大多数情况下改下面的行就可以了 
+		executable: mos-chinadns程序的位置，%BASE% 指WinSW所在目录 
+		arguments: 启动mos-chinadns的参数 
+		workingdirectory: 工作目录
+		log: mode="none" 禁用log
+	-->
+	<executable>%BASE%\mos-chinadns.exe</executable>
+	<arguments></arguments>	
+	<workingdirectory></workingdirectory>
+	<log mode="append"></log>
+	
+
+	<onfailure action="restart" delay="10 sec"/>
+	<onfailure action="restart" delay="20 sec"/>
+	<onfailure action="restart" delay="30 sec"/>
+	<resetfailure>1 hour</resetfailure>
+</service>
