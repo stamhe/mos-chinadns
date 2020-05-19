@@ -173,11 +173,17 @@ read:
 	}
 
 	data := buf[:n]
-	if utils.GetMsgID(data) != utils.GetMsgID(qRaw) && !isNewConn {
-		// this connection is reused, data might be the reply
-		// of last qRaw, not this qRaw.
-		// try to read again
-		goto read
+	if utils.GetMsgID(data) != utils.GetMsgID(qRaw) {
+		if !isNewConn {
+			// this connection is reused, data might be the reply
+			// of last qRaw, not this qRaw.
+			// try to read again
+			goto read
+		} else {
+			// new connection should never receive a mismatched id, this is an error
+			c.Close()
+			return nil, dns.ErrId
+		}
 	}
 
 	once.Do(func() {})
