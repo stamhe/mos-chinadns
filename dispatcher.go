@@ -115,7 +115,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.Server.Local.Addr) != 0 {
-		client, err := newUpstream(conf.Server.Local.Addr, conf.Server.Local.Protocol, conf.Server.Local.URL, rootCAs)
+		client, err := newUpstream(&conf.Server.Local.BasicServerConfig, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init local server: %w", err)
 		}
@@ -126,7 +126,7 @@ func initDispatcher(conf *Config, entry *logrus.Entry) (*dispatcher, error) {
 	}
 
 	if len(conf.Server.Remote.Addr) != 0 {
-		client, err := newUpstream(conf.Server.Remote.Addr, conf.Server.Remote.Protocol, conf.Server.Remote.URL, rootCAs)
+		client, err := newUpstream(&conf.Server.Remote.BasicServerConfig, rootCAs)
 		if err != nil {
 			return nil, fmt.Errorf("init remote server: %w", err)
 		}
@@ -626,7 +626,7 @@ var convDomainPolicyActionStr = map[string]policyAction{
 	policyActionDenyAllStr: policyActionDenyAll,
 }
 
-type rawPolicy struct {
+type RawPolicy struct {
 	action policyAction
 	args   string
 }
@@ -649,14 +649,14 @@ type domainPolicy struct {
 	list   *domainlist.List
 }
 
-func convPoliciesStr(s string, f map[string]policyAction) ([]rawPolicy, error) {
-	ps := make([]rawPolicy, 0)
+func convPoliciesStr(s string, f map[string]policyAction) ([]RawPolicy, error) {
+	ps := make([]RawPolicy, 0)
 
 	policiesStr := strings.Split(s, "|")
 	for i := range policiesStr {
 		pStr := strings.SplitN(policiesStr[i], ":", 2)
 
-		p := rawPolicy{}
+		p := RawPolicy{}
 		action, ok := f[pStr[0]]
 		if !ok {
 			return nil, fmt.Errorf("unknown action [%s]", pStr[0])
@@ -673,7 +673,7 @@ func convPoliciesStr(s string, f map[string]policyAction) ([]rawPolicy, error) {
 	return ps, nil
 }
 
-func newIPPolicies(psArgs []rawPolicy, entry *logrus.Entry) (*ipPolicies, error) {
+func newIPPolicies(psArgs []RawPolicy, entry *logrus.Entry) (*ipPolicies, error) {
 	ps := &ipPolicies{
 		policies: make([]ipPolicy, 0),
 	}
@@ -713,7 +713,7 @@ func (ps *ipPolicies) check(ip netlist.IPv6) policyAction {
 	return policyActionMissing
 }
 
-func newDomainPolicies(psArgs []rawPolicy, entry *logrus.Entry) (*domainPolicies, error) {
+func newDomainPolicies(psArgs []RawPolicy, entry *logrus.Entry) (*domainPolicies, error) {
 	ps := &domainPolicies{
 		policies: make([]domainPolicy, 0),
 	}

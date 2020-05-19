@@ -18,41 +18,48 @@
 package dohclient
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
-	"sync"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/IrineSistiana/mos-chinadns/utils"
 
 	"github.com/IrineSistiana/mos-chinadns/bufpool"
 
-	"golang.org/x/sync/singleflight"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/miekg/dns"
 
 	"github.com/valyala/fasthttp"
+	"golang.org/x/net/http2"
+)
+
+// err
+var (
+	ErrMsgTooLarge = fmt.Errorf("msg is larger than %d", dns.MaxMsgSize)
+)
+
+const (
+	fastHTTPTimout = time.Second * 3
 )
 
 type DoHClient struct {
+	useFastHTTP bool
 	preparedURL []byte
-	timeout     time.Duration
 
-	// why using pointer: uint64 atomic value inside HostClient.
-	// avoids 32-bit system encountering "invalid memory address" panic
 	fasthttpClient *fasthttp.HostClient
-
-	group singleflight.Group
+	netHTTPClient  *http.Client
 }
 
 // NewClient returns a doh client
-func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout time.Duration) *DoHClient {
+func NewClient(urlStr, addr string, tlsConfig *tls.Config, maxSize int, fastHTTP bool) (*DoHClient, error) {
 	// for ease to use, overwrite maxSize.
 	switch {
 	case maxSize > dns.MaxMsgSize:
@@ -61,54 +68,88 @@ func NewClient(url, addr string, tlsConfig *tls.Config, maxSize int, timeout tim
 		maxSize = dns.MinMsgSize
 	}
 
-	u := fasthttp.URI{}
-	u.Update(url)
-	host := string(u.Host())
-	if len(host) == 0 {
-		host = addr
+	// check urlStr
+	u, err := url.ParseRequestURI(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("url.ParseRequestURI: %w", err)
 	}
 
-	c := &DoHClient{
-		preparedURL: []byte(url + "?dns="),
-		timeout:     timeout,
-		fasthttpClient: &fasthttp.HostClient{
-			Addr: host,
+	if u.Scheme != "https" {
+		return nil, fmt.Errorf("invalid url scheme [%s]", u.Scheme)
+	}
+
+	u.ForceQuery = true // make sure we have a '?' at somewhere
+	urlStr = u.String()
+	if strings.HasSuffix(urlStr, "?") {
+		urlStr = urlStr + "dns=" // the only one and the first arg
+	} else {
+		urlStr = urlStr + "&dns=" // the last arg
+	}
+
+	c := new(DoHClient)
+	c.preparedURL = []byte(urlStr)
+	c.useFastHTTP = fastHTTP
+
+	if fastHTTP {
+		c.fasthttpClient = &fasthttp.HostClient{
+			Addr: u.Hostname(),
 			Dial: func(_ string) (net.Conn, error) {
-				d := net.Dialer{Timeout: timeout}
+				d := net.Dialer{Timeout: fastHTTPTimout}
 				return d.Dial("tcp", addr)
 			},
 			IsTLS:                         true,
 			TLSConfig:                     tlsConfig,
-			ReadTimeout:                   timeout,
-			WriteTimeout:                  timeout,
+			ReadTimeout:                   fastHTTPTimout,
+			WriteTimeout:                  fastHTTPTimout,
 			MaxResponseBodySize:           maxSize,
 			DisableHeaderNamesNormalizing: true,
 			DisablePathNormalizing:        true,
 			NoDefaultUserAgentHeader:      true,
-		},
+		}
+	} else {
+		tc := new(tls.Config)
+		if tlsConfig != nil {
+			tc = tlsConfig.Clone()
+		}
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, network, addr)
+			},
+			TLSClientConfig: tc,
+
+			IdleConnTimeout:       time.Minute,
+			ResponseHeaderTimeout: time.Second * 5,
+			ForceAttemptHTTP2:     true,
+		}
+
+		err := http2.ConfigureTransport(transport) // enable http2
+		if err != nil {
+			return nil, err
+		}
+		c.netHTTPClient = &http.Client{
+			Transport: transport,
+		}
 	}
-	return c
+
+	return c, nil
 }
 
 // some consistent string vars
 var (
 	headerCanonicalKeyAccept = []byte("Accept")
 	headerValueMediaType     = []byte("application/dns-message")
-)
 
-var bytesBufPool = sync.Pool{
-	New: func() interface{} {
-		return &bytes.Buffer{}
-	},
-}
+	dohCommomHeader = http.Header{"Accept": []string{"application/dns-message"}}
+)
 
 func (c *DoHClient) Exchange(ctx context.Context, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, rtt time.Duration, err error) {
 	t := time.Now()
-	r, err := c.exchange(qRaw, requestLogger)
+	r, err := c.exchange(ctx, qRaw, requestLogger)
 	return r, time.Since(t), err
 }
 
-func (c *DoHClient) exchange(qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, err error) {
+func (c *DoHClient) exchange(ctx context.Context, qRaw []byte, requestLogger *logrus.Entry) (rRaw []byte, err error) {
 	if len(qRaw) < 12 {
 		return nil, dns.ErrShortRead // avoid panic when access msg id in m[0] and m[1]
 	}
@@ -133,13 +174,24 @@ func (c *DoHClient) exchange(qRaw []byte, requestLogger *logrus.Entry) (rRaw []b
 	base64MsgStart := len(c.preparedURL)
 	base64.RawURLEncoding.Encode(urlBytes[base64MsgStart:], qRawCopy)
 
-	rRaw, err = c.doFasthttp(urlBytes, requestLogger)
-	if err != nil {
-		return nil, fmt.Errorf("group.Do doFasthttp: %w", err)
+	if c.useFastHTTP {
+		rRaw, err = c.doFasthttp(urlBytes, requestLogger)
+		if err != nil {
+			return nil, fmt.Errorf("doFasthttp: %w", err)
+		}
+	} else {
+		rRaw, err = c.doHTTP(ctx, string(urlBytes), requestLogger)
+		if err != nil {
+			return nil, fmt.Errorf("doHTTP: %w", err)
+		}
 	}
 
 	// change the id back
-	_ = utils.ExchangeMsgID(oldID, rRaw)
+	if utils.GetMsgID(rRaw) != 0 { // check msg id
+		bufpool.ReleaseMsgBuf(rRaw)
+		return nil, dns.ErrId
+	}
+	utils.SetMsgID(oldID, rRaw)
 	return rRaw, nil
 }
 
@@ -158,16 +210,15 @@ func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) ([]byte,
 		return nil, fmt.Errorf("Do: %w", err)
 	}
 
-	statusCode := resp.StatusCode()
-	if statusCode != fasthttp.StatusOK {
-		if requestLogger.Logger.IsLevelEnabled(logrus.DebugLevel) {
-			requestLogger.Debugf("doFasthttp: HTTP status codes [%d] body [%s]", statusCode, resp.Body())
-		}
-		return nil, fmt.Errorf("HTTP status codes [%d]", statusCode)
+	// check Content_Length
+	if resp.Header.ContentLength() > dns.MaxMsgSize {
+		return nil, ErrMsgTooLarge
 	}
 
-	if resp.IsBodyStream() {
-		return nil, fmt.Errorf("resp body is stream")
+	// check statu code
+	statusCode := resp.StatusCode()
+	if statusCode != fasthttp.StatusOK {
+		return nil, fmt.Errorf("HTTP status codes [%d]", statusCode)
 	}
 
 	body := resp.Body()
@@ -175,7 +226,46 @@ func (c *DoHClient) doFasthttp(url []byte, requestLogger *logrus.Entry) ([]byte,
 		return nil, dns.ErrShortRead
 	}
 
-	rRaw := bufpool.AcquireMsgBuf(len(body))
-	copy(rRaw, body)
+	rRaw := bufpool.AcquireMsgBufAndCopy(body)
+	return rRaw, nil
+}
+
+func (c *DoHClient) doHTTP(ctx context.Context, url string, requestLogger *logrus.Entry) ([]byte, error) {
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("NewRequestWithContext: %w", err)
+	}
+	req.Header = dohCommomHeader.Clone()
+
+	resp, err := c.netHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// check Content-Length
+	if resp.ContentLength > dns.MaxMsgSize {
+		return nil, ErrMsgTooLarge
+	}
+
+	// check statu code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP status codes [%d]", resp.StatusCode)
+	}
+
+	buf := bufpool.AcquireBytesBuf()
+	defer bufpool.ReleaseBytesBuf(buf)
+	_, err = buf.ReadFrom(io.LimitReader(resp.Body, dns.MaxMsgSize))
+	if err != nil {
+		return nil, fmt.Errorf("ReadFrom resp.Body: %w", err)
+	}
+	body := buf.Bytes()
+
+	if len(body) < 12 {
+		return nil, dns.ErrShortRead
+	}
+
+	rRaw := bufpool.AcquireMsgBufAndCopy(body)
 	return rRaw, nil
 }

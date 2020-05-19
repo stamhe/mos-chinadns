@@ -18,6 +18,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +27,8 @@ import (
 	"runtime"
 	"syscall"
 	"time"
+
+	"github.com/miekg/dns"
 
 	// dev only
 	// "net/http"
@@ -48,6 +51,8 @@ var (
 
 	cpu         = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 	showVersion = flag.Bool("v", false, "show verison")
+
+	probeDoTTimeout = flag.String("probe-dot-timeout", "", "[ip:port] probe dot server's timeout")
 )
 
 func main() {
@@ -73,6 +78,12 @@ func main() {
 	// show version
 	if *showVersion {
 		fmt.Printf("%s\n", version)
+		return
+	}
+
+	// dot test
+	if len(*probeDoTTimeout) != 0 {
+		probTLSTimeout(*probeDoTTimeout, entry)
 		return
 	}
 
@@ -164,4 +175,46 @@ func printStatus(entry *logrus.Entry, d time.Duration) {
 		runtime.ReadMemStats(m)
 		entry.Infof("HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
 	}
+}
+
+func probTLSTimeout(addr string, entry *logrus.Entry) {
+	q := new(dns.Msg)
+	q.SetQuestion("www.google.com.", dns.TypeA)
+
+	tlsConfig := new(tls.Config)
+	tlsConfig.InsecureSkipVerify = true
+
+	entry.Infof("connecting to %s", addr)
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		entry.Fatal(err)
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(time.Second * 5))
+	entry.Info("connected, handshaking")
+	conn.Handshake()
+	entry.Info("handshake completed")
+
+	conn.SetDeadline(time.Now().Add(time.Second * 5))
+	dc := dns.Conn{Conn: conn}
+	err = dc.WriteMsg(q)
+	if err != nil {
+		entry.Fatal(err)
+	}
+	_, err = dc.ReadMsg()
+	if err != nil {
+		entry.Fatal(err)
+	}
+
+	entry.Info("dummy msg sent")
+	entry.Info("waiting peer to close the connection...")
+	entry.Info("this may take a while...")
+	entry.Info("if you think its long enough, to cancel the test, press Ctrl + C")
+	conn.SetDeadline(time.Now().Add(time.Minute * 60))
+
+	start := time.Now()
+	conn.Read(make([]byte, 1))
+
+	entry.Infof("connection cloesed by peer after %s", time.Since(start))
 }

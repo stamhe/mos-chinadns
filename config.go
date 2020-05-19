@@ -21,7 +21,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // Config is config
@@ -33,9 +33,7 @@ type Config struct {
 
 	Server struct {
 		Local struct {
-			Addr     string `yaml:"addr"`
-			Protocol string `yaml:"protocol"`
-			URL      string `yaml:"url"`
+			BasicServerConfig `yaml:"basic,inline"`
 
 			DenyUnusualTypes     bool `yaml:"deny_unusual_types"`
 			DenyResultsWithoutIP bool `yaml:"deny_results_without_ip"`
@@ -46,10 +44,8 @@ type Config struct {
 		} `yaml:"local"`
 
 		Remote struct {
-			Addr       string `yaml:"addr"`
-			Protocol   string `yaml:"protocol"`
-			URL        string `yaml:"url"`
-			DelayStart int    `yaml:"delay_start"`
+			BasicServerConfig `yaml:"basic,inline"`
+			DelayStart        int `yaml:"delay_start"`
 		} `yaml:"remote"`
 	} `yaml:"server"`
 
@@ -61,6 +57,20 @@ type Config struct {
 	CA struct {
 		Path string `yaml:"path"`
 	} `yaml:"ca"`
+}
+
+type BasicServerConfig struct {
+	Addr     string `yaml:"addr"`
+	Protocol string `yaml:"protocol"`
+	DoH      struct {
+		URL      string `yaml:"url"`
+		FastHTTP bool   `yaml:"fasthttp"`
+	} `yaml:"doh"`
+
+	DoT struct {
+		ServerName  string `yaml:"server_name"`
+		IdleTimeout uint   `yaml:"idle_timeout"`
+	} `yaml:"dot"`
 }
 
 func loadConfig(configFile string) (*Config, error) {
